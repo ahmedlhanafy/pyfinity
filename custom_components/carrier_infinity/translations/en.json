@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Carrier Infinity Touch",
+        "description": "Connect to your thermostat via USB-to-RS485 adapter.",
+        "data": {
+          "port": "Serial port",
+          "scan_interval": "Polling interval (seconds)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not communicate with thermostat. Check wiring and port.",
+      "no_ports": "No serial ports found."
+    },
+    "abort": {
+      "already_configured": "This serial port is already configured."
+    }
+  }
+}
