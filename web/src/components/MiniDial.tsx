@@ -117,10 +117,14 @@ export default function MiniDial({
     (e: React.MouseEvent | React.TouchEvent) => {
       e.preventDefault();
 
+      let lastT = temp;
       const onMove = (ev: MouseEvent | TouchEvent) => {
         const cx = 'touches' in ev ? ev.touches[0].clientX : ev.clientX;
         const cy = 'touches' in ev ? ev.touches[0].clientY : ev.clientY;
-        onTempChange(tempFromEvent(cx, cy));
+        const t = tempFromEvent(cx, cy);
+        if (t !== lastT && navigator.vibrate) navigator.vibrate(4);
+        lastT = t;
+        onTempChange(t);
       };
 
       const onUp = () => {

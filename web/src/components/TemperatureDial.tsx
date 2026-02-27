@@ -202,10 +202,13 @@ export default function TemperatureDial({
       setDragging(true);
       onDragStart();
 
+      let lastT = temp ?? 0;
       const onMove = (ev: MouseEvent | TouchEvent) => {
         const cx = 'touches' in ev ? ev.touches[0].clientX : ev.clientX;
         const cy = 'touches' in ev ? ev.touches[0].clientY : ev.clientY;
         const t = tempFromEvent(cx, cy);
+        if (t !== lastT && navigator.vibrate) navigator.vibrate(4);
+        lastT = t;
         onTempChange(t);
       };
 

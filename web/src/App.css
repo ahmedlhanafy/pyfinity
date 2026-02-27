@@ -84,7 +84,7 @@ body {
     display: flex; flex-direction: column;
 }
 
-/* Small screens: full screen, no card floating effect */
+/* Tablet: full screen, no floating card */
 @media (max-width: 960px) {
     .control-panel {
         width: 100vw; height: 100vh;
@@ -98,6 +98,120 @@ body {
     .manual-view { gap: 24px; }
     .sched-top { gap: 16px; }
     .sched-right { width: 280px; }
+}
+
+/* Mobile: single column, scrollable */
+@media (max-width: 540px) {
+    body { overflow: auto; align-items: flex-start; }
+    .control-panel {
+        width: 100vw; height: auto; min-height: 100vh;
+        border-radius: 0; border: none; box-shadow: none;
+        background: var(--color-bg);
+        backdrop-filter: none; -webkit-backdrop-filter: none;
+        padding: 16px 16px 32px;
+        overflow: visible;
+    }
+    .ambient-background { display: none; }
+
+    /* Top bar: clock+controls top, toggle below */
+    .top-bar {
+        flex-wrap: wrap; gap: 8px;
+        margin-bottom: 8px;
+    }
+    .top-left { flex-direction: column; gap: 2px; }
+    .top-center { order: 3; width: 100%; display: flex; justify-content: center; margin-top: 4px; }
+    .live-clock { font-size: 28px; letter-spacing: 2px; font-weight: 200; }
+    .live-clock-date { font-size: 11px; }
+    .top-right { gap: 6px; }
+    .theme-btn { width: 28px; height: 28px; font-size: 13px; }
+    .unit-btn { padding: 5px 10px; font-size: 11px; }
+
+    /* View content: scrollable */
+    .view-content { flex: none; min-height: 0; }
+
+    /* Manual view: single column, specific order */
+    .manual-view {
+        display: flex !important; flex-direction: column;
+        gap: 0; height: auto;
+    }
+    /* Reorder: toggle → dial → pills → info cards → presets */
+    .manual-view > .col:first-child { order: 3; }   /* left col (info) → after dial */
+    .manual-view > .col-center { order: 1; }          /* center col (dial) → first */
+    .manual-view > .col:last-child { order: 4; }      /* right col (presets) → last */
+
+    .col { justify-content: flex-start; gap: 12px; }
+    .col-center { align-items: center; padding-top: 4px; }
+
+    /* Show Manual/Schedule toggle inline in center col on mobile */
+    .manual-view > .col-center::before {
+        content: ''; /* we can't inject HTML from CSS, so we handle this differently */
+    }
+
+    /* Dial */
+    .dial-container {
+        width: 260px; height: 260px;
+        margin: 0 auto;
+        transform: scale(0.82); transform-origin: center center;
+    }
+    .temp-large { font-size: 52px; }
+    .temp-large .unit { font-size: 22px; }
+    .dial-status { font-size: 9px; }
+    .dial-thumb { width: 30px; height: 30px; }
+
+    /* Heat/Cool pill centered */
+    .pill-control { margin: 0 auto 8px; }
+
+    /* Left col: hide label, keep cards compact */
+    .manual-view > .col:first-child { padding-top: 4px; }
+    .manual-view > .col:first-child > div:first-child > .label { display: none; }
+    .manual-view > .col:first-child > div:first-child > h2 { font-size: 15px; margin-bottom: 10px; }
+    .weather-card { padding: 14px; border-radius: 14px; }
+    .weather-value { font-size: 22px; }
+
+    /* Info list: compact */
+    .info-item { padding: 10px 0; }
+    .info-label, .info-val { font-size: 13px; }
+
+    /* Hide system status section on mobile */
+    .manual-view > .col:last-child > div:first-child { display: none; }
+
+    /* Presets: 2x2 grid */
+    .manual-view > .col:last-child > div:last-child {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px !important;
+    }
+    .manual-view > .col:last-child > div:last-child > .label {
+        grid-column: 1 / -1;
+    }
+    .preset-btn { padding: 12px 14px; border-radius: 12px; font-size: 12px; }
+    .label { font-size: 9px; letter-spacing: 1.5px; margin-bottom: 8px; }
+
+    /* Schedule view: single column */
+    .schedule-view { height: auto; gap: 16px; }
+    .sched-top { flex-direction: column; gap: 16px; }
+    .sched-right { width: 100%; }
+    .sched-left { gap: 12px; }
+
+    .timeline-wrap { padding: 14px; border-radius: 12px; }
+    .timeline-bar { height: 44px; }
+    .timeline-block { font-size: 9px; }
+    .timeline-hours span { font-size: 9px; }
+
+    .sched-editor {
+        flex-direction: row; overflow-x: auto; overflow-y: hidden;
+        gap: 8px; flex: none; padding-bottom: 4px;
+        -webkit-overflow-scrolling: touch;
+    }
+    .sched-period-card { min-width: 140px; flex-shrink: 0; padding: 12px; }
+    .sched-card-temp strong { font-size: 16px; }
+
+    .sched-left > div:last-child { gap: 8px; }
+    .sched-left > div:last-child .weather-card { padding: 12px; }
+    .sched-left > div:last-child .weather-card div { font-size: 20px !important; }
+
+    .sched-next { padding: 10px 12px; font-size: 11px; }
+    .sched-day-tab { padding: 7px 16px; font-size: 11px; }
 }
 
 /* Top bar */
