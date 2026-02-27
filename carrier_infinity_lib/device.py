@@ -17,11 +17,25 @@ from .serial_bus import SerialBus
 _LOGGER = logging.getLogger(__name__)
 
 
+def _valid_temp(v):
+    """Return True if v is a plausible temperature reading (not None, not 0)."""
+    return v is not None and v != 0
+
+
 class CarrierInfinityDevice:
     """Carrier Infinity Touch thermostat interface."""
 
     def __init__(self, bus: SerialBus):
         self.bus = bus
+        # Cache last known good values so flaky reads don't blank the UI
+        self._cache = {
+            "indoor_temp": None,
+            "outdoor_temp": None,
+            "heat_setpoint": None,
+            "cool_setpoint": None,
+        }
+        self._daily_cache: list[dict] = []
+        self._yearly_cache: dict | None = None
 
     def read_comfort_profile(self) -> bytes | None:
         """Read table 00400a with retry."""
@@ -35,24 +49,31 @@ class CarrierInfinityDevice:
             time.sleep(0.5)
         return None
 
+    def _read_or_cache(self, key: str, value):
+        """Update cache if value is valid, return cached value either way."""
+        if _valid_temp(value):
+            self._cache[key] = value
+        return self._cache[key]
+
     def get_status(self) -> dict:
         """Read indoor/outdoor temps and setpoints.
 
         Indoor: primary TS 004907[60], fallback HP 000304[10]
         Outdoor: primary HP 00061f[32], fallback TS 004901[16]
         Both sources can be flaky so we try primary first, fall back if None.
+        Returns cached values when fresh reads fail.
         """
         # Indoor: thermostat table is more accurate
         data = self.bus.read_table(TSTAT, "004907")
         indoor = data[60] if data and len(data) > 60 else None
-        if indoor is None:
+        if not _valid_temp(indoor):
             data = self.bus.read_table(HEATPUMP, "000304")
             indoor = data[10] if data and len(data) > 10 else None
 
         # Outdoor: heat pump sensor is fresher than thermostat cache
         data = self.bus.read_table(HEATPUMP, "00061f")
         outdoor = data[32] if data and len(data) > 32 else None
-        if outdoor is None:
+        if not _valid_temp(outdoor):
             data = self.bus.read_table(TSTAT, "004901")
             outdoor = data[16] if data and len(data) > 16 else None
 
@@ -61,17 +82,17 @@ class CarrierInfinityDevice:
         cool_sp = profile[COOL_SETPOINT_BYTE] if profile else None
 
         return {
-            "indoor_temp": indoor,
-            "outdoor_temp": outdoor,
-            "heat_setpoint": heat_sp,
-            "cool_setpoint": cool_sp,
+            "indoor_temp": self._read_or_cache("indoor_temp", indoor),
+            "outdoor_temp": self._read_or_cache("outdoor_temp", outdoor),
+            "heat_setpoint": self._read_or_cache("heat_setpoint", heat_sp),
+            "cool_setpoint": self._read_or_cache("cool_setpoint", cool_sp),
         }
 
     def get_daily_energy(self) -> list[dict]:
         """Read daily energy usage from table 00460e (10-byte records)."""
         data = self.bus.read_table(TSTAT, "00460e")
         if not data:
-            return []
+            return self._daily_cache
         days = []
         for i in range(len(data) // 10):
             r = data[i * 10 : (i + 1) * 10]
@@ -82,18 +103,20 @@ class CarrierInfinityDevice:
                 "fan": r[3],
                 "reheat": r[4],
             })
-        return days
+        if days:
+            self._daily_cache = days
+        return self._daily_cache
 
     def get_yearly_energy(self) -> dict | None:
         """Read yearly energy totals from table 004610."""
         data = self.bus.read_table(TSTAT, "004610")
         if not data or len(data) < 37:
-            return None
+            return self._yearly_cache
 
         def u16(d, offset):
             return struct.unpack(">H", d[offset : offset + 2])[0] if offset + 2 <= len(d) else 0
 
-        return {
+        result = {
             "current": {
                 "hp_heat": u16(data, 3),
                 "elec_heat": u16(data, 7),
@@ -106,6 +129,8 @@ class CarrierInfinityDevice:
                 "fan": u16(data, 35),
             },
         }
+        self._yearly_cache = result
+        return self._yearly_cache
 
     def set_setpoint(self, target: int, byte_offset: int) -> bool:
         """Set a setpoint by writing to 00400a. Blocks ~30s (6 rounds x 5s)."""
