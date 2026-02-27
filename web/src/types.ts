@@ -28,3 +28,4 @@ export interface ScheduleData {
 
 export type Unit = 'F' | 'C';
 export type HvacMode = 'heat' | 'cool';
+export type Theme = 'dark' | 'light';

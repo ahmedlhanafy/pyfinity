@@ -20,7 +20,7 @@ export default function PeriodCard({
   return (
     <div
       className={`sched-period-card${isSelected ? ' selected' : ''}`}
-      onClick={onClick}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
     >
       <div className="sched-card-header">
         <span className="sched-period-dot" style={{ background: color }} />

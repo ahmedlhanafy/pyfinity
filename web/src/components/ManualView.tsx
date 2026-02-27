@@ -9,8 +9,13 @@ interface ManualViewProps {
   unit: Unit;
   mode: HvacMode;
   onModeChange: (mode: HvacMode) => void;
-  onManualInteraction: () => void; // called when user touches dial (auto-switch from schedule)
+  onManualInteraction: () => void;
 }
+
+const BOUNDS = {
+  heat: { min: 55, max: 85 },
+  cool: { min: 60, max: 90 },
+};
 
 const PRESETS = [
   { name: 'Cozy', temp: 72 },
@@ -24,41 +29,53 @@ const DEBOUNCE_MS = 2000;
 export default function ManualView({ status, unit, mode, onModeChange, onManualInteraction }: ManualViewProps) {
   const [dialTemp, setDialTemp] = useState<number | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [statusText, setStatusText] = useState('Connecting...');
   const [activePreset, setActivePreset] = useState<number | null>(68);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
 
-  // Determine displayed temp: during drag/pending use local, else use server value
-  const serverTemp = mode === 'heat' ? status?.heat_setpoint : status?.cool_setpoint;
-  const displayedTemp = (isDragging || isPending) ? dialTemp : (dialTemp ?? serverTemp ?? null);
+  const { min, max } = BOUNDS[mode];
 
-  // Update status text from server when not interacting
-  const effectiveStatus = (isDragging || isPending) ? statusText : (
+  // Clamp temp to current mode bounds
+  const clamp = (t: number) => Math.max(min, Math.min(max, t));
+
+  const serverTemp = mode === 'heat' ? status?.heat_setpoint : status?.cool_setpoint;
+  const displayedTemp = (isDragging || isPending || isApplying) ? dialTemp : (dialTemp ?? serverTemp ?? null);
+
+  const effectiveStatus = (isDragging || isPending || isApplying) ? statusText : (
     status ? (mode === 'heat' ? `Heating to ${ft(serverTemp ?? null, unit)}` : `Cooling to ${ft(serverTemp ?? null, unit)}`) : 'Connecting...'
   );
 
   const doSend = useCallback(async (temp: number) => {
-    setStatusText(`Sending ${displayTemp(temp, unit)}${unitLabel(unit)}...`);
+    setIsPending(false);
+    setIsApplying(true);
+    setStatusText(`Applying ${displayTemp(temp, unit)}${unitLabel(unit)} (~30s)`);
     try {
       const res = await setTemp(mode, temp, true);
-      if (res.ok) {
-        setStatusText(`Applying ${displayTemp(temp, unit)}${unitLabel(unit)} (~30s)`);
+      if (!res.ok) {
+        setStatusText('Error setting temperature');
+        setIsApplying(false);
       }
+      // Keep isApplying=true — it'll clear when the next poll shows the new value
+      // or after a timeout
+      setTimeout(() => setIsApplying(false), 35000);
     } catch {
       setStatusText('Connection error');
+      setIsApplying(false);
     }
-    setIsPending(false);
   }, [mode, unit]);
 
   const handleTempChange = useCallback((temp: number) => {
-    setDialTemp(temp);
-    setStatusText(`Set to ${displayTemp(temp, unit)}${unitLabel(unit)}`);
+    const clamped = clamp(temp);
+    setDialTemp(clamped);
+    setStatusText(`Set to ${displayTemp(clamped, unit)}${unitLabel(unit)}`);
     setActivePreset(null);
     setIsPending(true);
+    setIsApplying(false);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => doSend(temp), DEBOUNCE_MS);
-  }, [unit, doSend]);
+    debounceRef.current = setTimeout(() => doSend(clamped), DEBOUNCE_MS);
+  }, [unit, doSend, min, max]);
 
   const handleDragStart = useCallback(() => {
     setIsDragging(true);
@@ -70,14 +87,16 @@ export default function ManualView({ status, unit, mode, onModeChange, onManualI
   }, []);
 
   const handlePreset = useCallback((temp: number) => {
-    setDialTemp(temp);
+    const clamped = clamp(temp);
+    setDialTemp(clamped);
     setActivePreset(temp);
     setIsPending(true);
-    setStatusText(`Set to ${displayTemp(temp, unit)}${unitLabel(unit)}`);
+    setIsApplying(false);
+    setStatusText(`Set to ${displayTemp(clamped, unit)}${unitLabel(unit)}`);
     onManualInteraction();
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => doSend(temp), DEBOUNCE_MS);
-  }, [unit, doSend, onManualInteraction]);
+    debounceRef.current = setTimeout(() => doSend(clamped), DEBOUNCE_MS);
+  }, [unit, doSend, onManualInteraction, min, max]);
 
   return (
     <div className="manual-view">
@@ -115,7 +134,7 @@ export default function ManualView({ status, unit, mode, onModeChange, onManualI
         <TemperatureDial
           temp={displayedTemp}
           mode={mode}
-          isPending={isPending}
+          isPending={isPending || isApplying}
           statusText={effectiveStatus}
           unit={unit}
           onTempChange={handleTempChange}

@@ -36,12 +36,25 @@ class CarrierInfinityDevice:
         return None
 
     def get_status(self) -> dict:
-        """Read indoor/outdoor temps and setpoints."""
-        data = self.bus.read_table(HEATPUMP, "000304")
-        indoor = data[10] if data and len(data) > 10 else None
+        """Read indoor/outdoor temps and setpoints.
 
-        data = self.bus.read_table(TSTAT, "004901")
-        outdoor = data[16] if data and len(data) > 16 else None
+        Indoor: primary TS 004907[60], fallback HP 000304[10]
+        Outdoor: primary HP 00061f[32], fallback TS 004901[16]
+        Both sources can be flaky so we try primary first, fall back if None.
+        """
+        # Indoor: thermostat table is more accurate
+        data = self.bus.read_table(TSTAT, "004907")
+        indoor = data[60] if data and len(data) > 60 else None
+        if indoor is None:
+            data = self.bus.read_table(HEATPUMP, "000304")
+            indoor = data[10] if data and len(data) > 10 else None
+
+        # Outdoor: heat pump sensor is fresher than thermostat cache
+        data = self.bus.read_table(HEATPUMP, "00061f")
+        outdoor = data[32] if data and len(data) > 32 else None
+        if outdoor is None:
+            data = self.bus.read_table(TSTAT, "004901")
+            outdoor = data[16] if data and len(data) > 16 else None
 
         profile = self.read_comfort_profile()
         heat_sp = profile[HEAT_SETPOINT_BYTE] if profile else None

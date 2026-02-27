@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import type { Unit } from '../types';
+import type { Unit, Theme } from '../types';
 
 interface TopBarProps {
   unit: Unit;
+  theme: Theme;
   scheduleMode: 'manual' | 'schedule';
   isConnected: boolean;
   onUnitChange: (unit: Unit) => void;
+  onThemeChange: (theme: Theme) => void;
   onScheduleModeChange: (mode: 'manual' | 'schedule') => void;
 }
 
@@ -14,9 +16,11 @@ const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov
 
 export default function TopBar({
   unit,
+  theme,
   scheduleMode,
   isConnected,
   onUnitChange,
+  onThemeChange,
   onScheduleModeChange,
 }: TopBarProps) {
   const [now, setNow] = useState(new Date());
@@ -62,6 +66,13 @@ export default function TopBar({
             onClick={() => onUnitChange('C')}
           >°C</button>
         </div>
+        <button
+          className="theme-btn"
+          onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
+        </button>
       </div>
     </div>
   );
