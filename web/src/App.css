@@ -147,11 +147,13 @@ body {
         content: ''; /* we can't inject HTML from CSS, so we handle this differently */
     }
 
-    /* Dial */
+    /* Dial: scale up to nearly edge-to-edge (260px base × scale) */
     .dial-container {
         width: 260px; height: 260px;
         margin: 0 auto;
-        transform: scale(0.82); transform-origin: center center;
+        --dial-scale: calc((100vw - 64px) / 260);
+        transform: scale(var(--dial-scale));
+        transform-origin: center center;
     }
     .temp-large { font-size: 52px; }
     .temp-large .unit { font-size: 22px; }
