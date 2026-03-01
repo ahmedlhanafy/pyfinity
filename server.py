@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Web control panel for Carrier Infinity Touch thermostat."""
 
+import argparse
 import json
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from flask import Flask, Response, request, send_from_directory
@@ -15,12 +16,23 @@ from carrier_infinity_lib.serial_bus import SerialBus
 
 app = Flask(__name__)
 
-# --- Device management ---
+# --- Config paths ---
+BASE_DIR = Path(__file__).parent
+SCHEDULE_FILE = BASE_DIR / "schedule.json"
+SETTINGS_FILE = BASE_DIR / "settings.json"
+ENERGY_FILE = BASE_DIR / "energy_history.json"
+RING_AUTH_FILE = BASE_DIR / "ring_auth.json"
+
+# --- Global state ---
 _device = None
 _lock = threading.Lock()
+_mock_mode = False
+_schedule = None
+_last_applied_period = None
+_ring_status = {"mode": None, "connected": False}
+_ring_lock = threading.Lock()
 
-SCHEDULE_FILE = Path(__file__).parent / "schedule.json"
-
+# --- Default configs ---
 DEFAULT_SCHEDULE = {
     "mode": "manual",
     "weekday": [
@@ -35,18 +47,30 @@ DEFAULT_SCHEDULE = {
         {"period": "home", "start": "09:00", "heat": 68, "cool": 75},
         {"period": "away", "start": "17:00", "heat": 62, "cool": 80},
     ],
+    "ring": {
+        "disarmed": {"heat": 68, "cool": 75},
+        "home": {"heat": 70, "cool": 74},
+        "away": {"heat": 62, "cool": 80},
+    },
 }
 
-# --- Schedule state ---
-_schedule = None
-_last_applied_period = None
+DEFAULT_SETTINGS = {
+    "unit": "F",
+    "theme": "dark",
+    "cost_per_kwh": 0.12,
+}
 
+
+# ── Schedule management ──────────────────────────────────────────────
 
 def load_schedule() -> dict:
     global _schedule
     if SCHEDULE_FILE.exists():
         try:
             _schedule = json.loads(SCHEDULE_FILE.read_text())
+            # Ensure ring config exists
+            if "ring" not in _schedule:
+                _schedule["ring"] = dict(DEFAULT_SCHEDULE["ring"])
         except Exception:
             _schedule = dict(DEFAULT_SCHEDULE)
     else:
@@ -65,7 +89,6 @@ def get_schedule() -> dict:
 
 
 def get_active_period(now=None) -> dict | None:
-    """Find the active period based on current time."""
     sched = get_schedule()
     if now is None:
         now = datetime.now()
@@ -73,12 +96,9 @@ def get_active_period(now=None) -> dict | None:
     periods = sched.get(day_type, [])
     if not periods:
         return None
-
     now_minutes = now.hour * 60 + now.minute
-    # Sort by start time
     sorted_periods = sorted(periods, key=lambda p: _time_to_minutes(p["start"]))
-
-    active = sorted_periods[-1]  # default to last (wraps from previous day)
+    active = sorted_periods[-1]
     for p in sorted_periods:
         if _time_to_minutes(p["start"]) <= now_minutes:
             active = p
@@ -86,7 +106,6 @@ def get_active_period(now=None) -> dict | None:
 
 
 def get_next_transition(now=None) -> str | None:
-    """Get description of next schedule transition."""
     sched = get_schedule()
     if now is None:
         now = datetime.now()
@@ -94,15 +113,11 @@ def get_next_transition(now=None) -> str | None:
     periods = sched.get(day_type, [])
     if not periods:
         return None
-
     now_minutes = now.hour * 60 + now.minute
     sorted_periods = sorted(periods, key=lambda p: _time_to_minutes(p["start"]))
-
     for p in sorted_periods:
         if _time_to_minutes(p["start"]) > now_minutes:
             return f"{p['period'].title()} at {p['start']}"
-
-    # Wrap to next day's first period
     next_day = "weekend" if now.weekday() == 4 else ("weekday" if now.weekday() == 5 else day_type)
     next_periods = sorted(sched.get(next_day, periods), key=lambda p: _time_to_minutes(p["start"]))
     if next_periods:
@@ -115,11 +130,81 @@ def _time_to_minutes(t: str) -> int:
     return int(h) * 60 + int(m)
 
 
-# --- Device management ---
+# ── Settings management ──────────────────────────────────────────────
+
+def load_settings() -> dict:
+    if SETTINGS_FILE.exists():
+        try:
+            return {**DEFAULT_SETTINGS, **json.loads(SETTINGS_FILE.read_text())}
+        except Exception:
+            pass
+    return dict(DEFAULT_SETTINGS)
+
+
+def save_settings(data: dict):
+    current = load_settings()
+    current.update(data)
+    SETTINGS_FILE.write_text(json.dumps(current, indent=2))
+    return current
+
+
+# ── Energy history management ────────────────────────────────────────
+
+def load_energy_history() -> dict:
+    if ENERGY_FILE.exists():
+        try:
+            return json.loads(ENERGY_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def save_energy_history(data: dict):
+    ENERGY_FILE.write_text(json.dumps(data, indent=2))
+
+
+def collect_daily_energy():
+    """Collect yesterday's energy and store in history."""
+    try:
+        def read(device):
+            return device.get_daily_energy()
+        daily = with_device(read)
+        if not daily:
+            return
+
+        history = load_energy_history()
+        # Record[0] = yesterday
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        if yesterday not in history and len(daily) > 0:
+            d = daily[0]
+            history[yesterday] = {
+                "hp_heat": d.get("hp_heat", 0),
+                "cooling": d.get("cooling", 0),
+                "elec_heat": d.get("elec_heat", 0),
+                "fan": d.get("fan", 0),
+                "reheat": d.get("reheat", 0),
+            }
+            save_energy_history(history)
+            print(f"[energy] Saved energy for {yesterday}")
+    except Exception as e:
+        print(f"[energy] Collection failed: {e}")
+
+
+def energy_collector_loop():
+    """Background thread: collects energy data once per day."""
+    while True:
+        collect_daily_energy()
+        time.sleep(3600)  # Check every hour, only writes if date is new
+
+
+# ── Device management ────────────────────────────────────────────────
 
 def get_device() -> CarrierInfinityDevice:
     global _device
     if _device is not None:
+        if _mock_mode:
+            return _device
         try:
             if _device.bus._ser.is_open:
                 return _device
@@ -130,6 +215,11 @@ def get_device() -> CarrierInfinityDevice:
         except Exception:
             pass
         _device = None
+
+    if _mock_mode:
+        from carrier_infinity_lib.mock_device import MockDevice
+        _device = MockDevice()
+        return _device
 
     port = SerialBus.find_port()
     if not port:
@@ -145,56 +235,171 @@ def with_device(fn):
             device = get_device()
             return fn(device)
         except Exception:
-            try:
-                if _device:
-                    _device.bus.close()
-            except Exception:
-                pass
-            _device = None
-            device = get_device()
-            return fn(device)
+            if not _mock_mode:
+                try:
+                    if _device and hasattr(_device, 'bus'):
+                        _device.bus.close()
+                except Exception:
+                    pass
+                _device = None
+                device = get_device()
+                return fn(device)
+            raise
 
 
 def json_response(data, status=200):
     return Response(json.dumps(data), status=status, mimetype="application/json")
 
 
-# --- Scheduler thread ---
+# ── Scheduler thread ─────────────────────────────────────────────────
 
 def scheduler_loop():
-    """Background thread: applies schedule temps when period changes."""
+    """Background thread: applies schedule/ring temps when period changes."""
     global _last_applied_period
     while True:
         try:
             sched = get_schedule()
-            if sched.get("mode") == "schedule":
+            mode = sched.get("mode", "manual")
+
+            if mode == "schedule":
                 period = get_active_period()
                 if period and period["period"] != _last_applied_period:
+                    heat, cool = period["heat"], period["cool"]
                     print(f"[scheduler] Period changed to: {period['period']} "
-                          f"(heat={period['heat']}, cool={period['cool']})")
+                          f"(heat={heat}, cool={cool})")
                     try:
-                        with_device(lambda d: d.set_setpoint(period["heat"], HEAT_SETPOINT_BYTE))
+                        with_device(lambda d: d.set_setpoint(heat, HEAT_SETPOINT_BYTE))
                     except Exception as e:
                         print(f"[scheduler] Heat set failed: {e}")
                     try:
-                        with_device(lambda d: d.set_setpoint(period["cool"], COOL_SETPOINT_BYTE))
+                        with_device(lambda d: d.set_setpoint(cool, COOL_SETPOINT_BYTE))
                     except Exception as e:
                         print(f"[scheduler] Cool set failed: {e}")
                     _last_applied_period = period["period"]
+
+            elif mode == "ring":
+                with _ring_lock:
+                    ring_mode = _ring_status.get("mode")
+                if ring_mode:
+                    ring_cfg = sched.get("ring", {}).get(ring_mode)
+                    if ring_cfg and ring_mode != _last_applied_period:
+                        heat, cool = ring_cfg["heat"], ring_cfg["cool"]
+                        print(f"[scheduler] Ring mode: {ring_mode} "
+                              f"(heat={heat}, cool={cool})")
+                        try:
+                            with_device(lambda d: d.set_setpoint(heat, HEAT_SETPOINT_BYTE))
+                        except Exception as e:
+                            print(f"[scheduler] Ring heat set failed: {e}")
+                        try:
+                            with_device(lambda d: d.set_setpoint(cool, COOL_SETPOINT_BYTE))
+                        except Exception as e:
+                            print(f"[scheduler] Ring cool set failed: {e}")
+                        _last_applied_period = ring_mode
+
         except Exception as e:
             print(f"[scheduler] Error: {e}")
         time.sleep(60)
 
 
-# --- Routes ---
+# ── Ring polling thread ──────────────────────────────────────────────
 
-WEB_DIR = Path(__file__).parent / "web" / "dist"
+def ring_polling_loop():
+    """Background thread: polls Ring alarm mode via Ring API."""
+    global _ring_status
+    import urllib.request
+    import urllib.error
+
+    if _mock_mode:
+        modes = ["disarmed", "home", "away"]
+        idx = 0
+        while True:
+            with _ring_lock:
+                _ring_status = {"mode": modes[idx % 3], "connected": True}
+            idx += 1
+            time.sleep(60)
+        return
+
+    if not RING_AUTH_FILE.exists():
+        print("[ring] No ring_auth.json found. Run ring_setup.py first.")
+        return
+
+    token_data = json.loads(RING_AUTH_FILE.read_text())
+    access_token = token_data.get("access_token")
+    location_id = token_data.get("location_id")
+
+    if not access_token:
+        print("[ring] No access_token in ring_auth.json")
+        return
+
+    # If we don't have location_id cached, fetch it once
+    if not location_id:
+        try:
+            req = urllib.request.Request(
+                "https://api.ring.com/clients_api/ring_devices",
+                headers={"Authorization": f"Bearer {access_token}",
+                         "User-Agent": "CarrierControl/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                devices = json.loads(resp.read())
+                for category in devices.values():
+                    if isinstance(category, list):
+                        for d in category:
+                            if isinstance(d, dict) and d.get("location_id"):
+                                location_id = d["location_id"]
+                                break
+                    if location_id:
+                        break
+            if location_id:
+                token_data["location_id"] = location_id
+                RING_AUTH_FILE.write_text(json.dumps(token_data))
+                print(f"[ring] Location ID: {location_id}")
+            else:
+                print("[ring] Could not find location_id from devices")
+                return
+        except Exception as e:
+            print(f"[ring] Failed to fetch location: {e}")
+            return
+
+    print(f"[ring] Polling alarm mode for location {location_id}")
+
+    while True:
+        try:
+            req = urllib.request.Request(
+                f"https://app.ring.com/api/v1/mode/location/{location_id}",
+                headers={"Authorization": f"Bearer {access_token}",
+                         "User-Agent": "CarrierControl/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+                mode = data.get("mode")  # "disarmed", "home", or "away"
+                with _ring_lock:
+                    _ring_status = {"mode": mode, "connected": True}
+
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                print("[ring] Token expired — re-run ring_setup.py")
+                with _ring_lock:
+                    _ring_status = {"mode": None, "connected": False}
+                return
+            print(f"[ring] HTTP error: {e.code}")
+            with _ring_lock:
+                _ring_status = {"mode": None, "connected": False}
+        except Exception as e:
+            print(f"[ring] Poll error: {e}")
+            with _ring_lock:
+                _ring_status = {"mode": None, "connected": False}
+
+        time.sleep(30)
+
+
+# ── Routes ───────────────────────────────────────────────────────────
+
+WEB_DIR = BASE_DIR / "web" / "dist"
 
 
 @app.route("/")
 def index():
     return send_from_directory(WEB_DIR, "index.html")
-
 
 
 @app.route("/<path:path>")
@@ -220,10 +425,12 @@ def api_status():
                 c = yearly["current"]
                 ytd = c.get("hp_heat", 0) + c.get("elec_heat", 0) + c.get("cooling", 0)
 
-            # Schedule info
             sched = get_schedule()
             active = get_active_period()
             next_trans = get_next_transition()
+
+            with _ring_lock:
+                ring_mode = _ring_status.get("mode")
 
             return {
                 "indoor_temp": status["indoor_temp"],
@@ -233,11 +440,12 @@ def api_status():
                 "energy_yesterday": yesterday,
                 "energy_2days": two_days,
                 "energy_ytd": ytd,
-                "schedule_mode": sched.get("mode", "manual"),
+                "control_mode": sched.get("mode", "manual"),
                 "active_period": active["period"] if active else None,
                 "active_period_heat": active["heat"] if active else None,
                 "active_period_cool": active["cool"] if active else None,
                 "next_transition": next_trans,
+                "ring_mode": ring_mode,
             }
 
         return json_response(with_device(read))
@@ -247,25 +455,17 @@ def api_status():
 
 @app.route("/api/set", methods=["POST"])
 def api_set():
-    global _last_applied_period
     data = request.get_json()
     mode = data.get("mode", "heat")
     temp = int(data.get("temp", 68))
 
-    # If user manually sets temp, switch to manual mode
-    if data.get("switch_to_manual") or get_schedule().get("mode") == "schedule":
-        sched = get_schedule()
-        sched["mode"] = "manual"
-        _last_applied_period = None
-        save_schedule()
-
     if mode == "heat":
         if not 55 <= temp <= 85:
-            return json_response({"error": "Heat: 55-85°F"}, 400)
+            return json_response({"error": "Heat: 55-85\u00b0F"}, 400)
         byte_offset = HEAT_SETPOINT_BYTE
     else:
         if not 60 <= temp <= 90:
-            return json_response({"error": "Cool: 60-90°F"}, 400)
+            return json_response({"error": "Cool: 60-90\u00b0F"}, 400)
         byte_offset = COOL_SETPOINT_BYTE
 
     def do_set():
@@ -276,6 +476,22 @@ def api_set():
 
     threading.Thread(target=do_set, daemon=True).start()
     return json_response({"ok": True, "target": temp, "mode": mode})
+
+
+@app.route("/api/mode", methods=["POST"])
+def api_mode():
+    global _last_applied_period
+    data = request.get_json()
+    new_mode = data.get("mode", "manual")
+    if new_mode not in ("manual", "schedule", "ring"):
+        return json_response({"error": "Invalid mode"}, 400)
+
+    sched = get_schedule()
+    sched["mode"] = new_mode
+    save_schedule()
+
+    _last_applied_period = None  # Force re-apply
+    return json_response({"ok": True, "mode": new_mode})
 
 
 @app.route("/api/schedule", methods=["GET"])
@@ -292,29 +508,178 @@ def api_schedule_save():
     if "weekend" in data:
         sched["weekend"] = data["weekend"]
     save_schedule()
+
+    # If in schedule mode, apply current period's temps immediately
+    if sched.get("mode") == "schedule":
+        period = get_active_period()
+        if period:
+            def apply():
+                try:
+                    with_device(lambda d: d.set_setpoint(period["heat"], HEAT_SETPOINT_BYTE))
+                    with_device(lambda d: d.set_setpoint(period["cool"], COOL_SETPOINT_BYTE))
+                    print(f"[schedule] Applied edited temps: heat={period['heat']}, cool={period['cool']}")
+                except Exception as e:
+                    print(f"[schedule] Apply failed: {e}")
+            threading.Thread(target=apply, daemon=True).start()
+
     return json_response({"ok": True})
 
 
+# Keep old endpoint for backward compat during transition
 @app.route("/api/schedule/mode", methods=["POST"])
 def api_schedule_mode():
-    global _last_applied_period
-    data = request.get_json()
-    new_mode = data.get("mode", "manual")
+    return api_mode()
+
+
+@app.route("/api/ring/status", methods=["GET"])
+def api_ring_status():
+    with _ring_lock:
+        return json_response(dict(_ring_status))
+
+
+@app.route("/api/ring/config", methods=["GET"])
+def api_ring_config_get():
     sched = get_schedule()
-    sched["mode"] = new_mode
+    return json_response(sched.get("ring", DEFAULT_SCHEDULE["ring"]))
+
+
+@app.route("/api/ring/config", methods=["POST"])
+def api_ring_config_save():
+    data = request.get_json()
+    sched = get_schedule()
+    sched["ring"] = data
     save_schedule()
 
-    if new_mode == "schedule":
-        # Immediately apply current period
-        _last_applied_period = None  # force re-apply
-    return json_response({"ok": True, "mode": new_mode})
+    # If in ring mode, apply the active Ring mode's temps immediately
+    if sched.get("mode") == "ring":
+        with _ring_lock:
+            ring_mode = _ring_status.get("mode")
+        if ring_mode and ring_mode in data:
+            cfg = data[ring_mode]
+            def apply():
+                try:
+                    with_device(lambda d: d.set_setpoint(cfg["heat"], HEAT_SETPOINT_BYTE))
+                    with_device(lambda d: d.set_setpoint(cfg["cool"], COOL_SETPOINT_BYTE))
+                    print(f"[ring] Applied edited temps for {ring_mode}: heat={cfg['heat']}, cool={cfg['cool']}")
+                except Exception as e:
+                    print(f"[ring] Apply failed: {e}")
+            threading.Thread(target=apply, daemon=True).start()
 
+    return json_response({"ok": True})
+
+
+def _valid_daily_record(d: dict) -> bool:
+    """Filter out corrupt daily energy records (yearly totals leaking in)."""
+    return all(d.get(k, 0) <= 150 for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"])
+
+
+def _get_device_daily() -> list[dict]:
+    """Get filtered daily energy from device."""
+    try:
+        daily = with_device(lambda d: d.get_daily_energy())
+        return [d for d in daily if _valid_daily_record(d)]
+    except Exception:
+        return []
+
+
+@app.route("/api/energy", methods=["GET"])
+def api_energy():
+    range_type = request.args.get("range", "day")
+    history = load_energy_history()
+
+    if range_type == "day":
+        # Record[0] = yesterday
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        data = []
+        if yesterday in history:
+            data.append({"date": yesterday, **history[yesterday]})
+        else:
+            daily = _get_device_daily()
+            if daily:
+                data.append({"date": yesterday, **daily[0]})
+        return json_response({"range": "day", "data": data})
+
+    elif range_type == "week":
+        # Record[0] = yesterday, record[1] = 2 days ago, etc.
+        data = {}
+        for i in range(1, 8):
+            date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
+            if date in history:
+                data[date] = history[date]
+
+        daily = _get_device_daily()
+        for i, d in enumerate(daily):
+            date = (datetime.now() - timedelta(days=i + 1)).strftime("%Y-%m-%d")
+            if date not in data:
+                data[date] = d
+
+        result = [{"date": k, **v} for k, v in sorted(data.items())]
+        return json_response({"range": "week", "data": result})
+
+    elif range_type == "year":
+        # Use thermostat yearly totals (much more accurate than sparse history)
+        try:
+            yearly = with_device(lambda d: d.get_yearly_energy())
+        except Exception:
+            yearly = None
+
+        data = []
+        if yearly and "current" in yearly:
+            c = yearly["current"]
+            now = datetime.now()
+            data.append({
+                "date": f"{now.year}-YTD",
+                "hp_heat": c.get("hp_heat", 0),
+                "cooling": c.get("cooling", 0),
+                "elec_heat": c.get("elec_heat", 0),
+                "fan": 0,
+                "reheat": 0,
+            })
+        if yearly and "previous" in yearly:
+            p = yearly["previous"]
+            data.insert(0, {
+                "date": f"{datetime.now().year - 1}",
+                "hp_heat": p.get("hp_heat", 0),
+                "cooling": p.get("cooling", 0),
+                "elec_heat": p.get("elec_heat", 0),
+                "fan": p.get("fan", 0),
+                "reheat": 0,
+            })
+        return json_response({"range": "year", "data": data})
+
+    return json_response({"error": "Invalid range"}, 400)
+
+
+@app.route("/api/settings", methods=["GET"])
+def api_settings_get():
+    return json_response(load_settings())
+
+
+@app.route("/api/settings", methods=["POST"])
+def api_settings_save():
+    data = request.get_json()
+    updated = save_settings(data)
+    return json_response({"ok": True, **updated})
+
+
+# ── Main ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Carrier Infinity Control Panel")
+    parser.add_argument("--mock", action="store_true", help="Run with mock device (no USB adapter needed)")
+    args = parser.parse_args()
+
+    _mock_mode = args.mock
+    if _mock_mode:
+        print("Running in MOCK mode — no real device connected")
+
     load_schedule()
-    # Start scheduler thread
-    t = threading.Thread(target=scheduler_loop, daemon=True)
-    t.start()
+
+    # Start background threads
+    threading.Thread(target=scheduler_loop, daemon=True).start()
+    threading.Thread(target=energy_collector_loop, daemon=True).start()
+    threading.Thread(target=ring_polling_loop, daemon=True).start()
+
     print("Starting Carrier Infinity control panel...")
     print("Open http://localhost:5050")
     app.run(host="0.0.0.0", port=5050, debug=False)

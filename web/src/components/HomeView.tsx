@@ -1,15 +1,15 @@
 import { useState, useRef, useCallback } from 'react';
-import type { StatusResponse, Unit, HvacMode } from '../types';
+import type { StatusResponse, Unit, HvacMode, ControlMode } from '../types';
 import { ft, displayTemp, unitLabel } from '../utils';
 import { setTemp } from '../api';
 import TemperatureDial from './TemperatureDial';
 
-interface ManualViewProps {
+interface HomeViewProps {
   status: StatusResponse | null;
   unit: Unit;
   mode: HvacMode;
+  controlMode: ControlMode;
   onModeChange: (mode: HvacMode) => void;
-  onManualInteraction: () => void;
 }
 
 const BOUNDS = {
@@ -17,27 +17,29 @@ const BOUNDS = {
   cool: { min: 60, max: 90 },
 };
 
-const PRESETS = [
-  { name: 'Cozy', temp: 72 },
-  { name: 'Home', temp: 68 },
-  { name: 'Away', temp: 62 },
-  { name: 'Sleep', temp: 65 },
-];
-
 const DEBOUNCE_MS = 2000;
 
-export default function ManualView({ status, unit, mode, onModeChange, onManualInteraction }: ManualViewProps) {
+function modeLabel(controlMode: ControlMode, status: StatusResponse | null): string {
+  if (controlMode === 'schedule') {
+    const period = status?.active_period;
+    return period ? `Schedule \u2014 ${period.charAt(0).toUpperCase() + period.slice(1)}` : 'Schedule';
+  }
+  if (controlMode === 'ring') {
+    const ringMode = status?.ring_mode;
+    return ringMode ? `Ring \u2014 ${ringMode.charAt(0).toUpperCase() + ringMode.slice(1)}` : 'Ring';
+  }
+  return 'Manual';
+}
+
+export default function HomeView({ status, unit, mode, controlMode, onModeChange }: HomeViewProps) {
   const [dialTemp, setDialTemp] = useState<number | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [statusText, setStatusText] = useState('Connecting...');
-  const [activePreset, setActivePreset] = useState<number | null>(68);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   const { min, max } = BOUNDS[mode];
-
-  // Clamp temp to current mode bounds
   const clamp = (t: number) => Math.max(min, Math.min(max, t));
 
   const serverTemp = mode === 'heat' ? status?.heat_setpoint : status?.cool_setpoint;
@@ -52,13 +54,11 @@ export default function ManualView({ status, unit, mode, onModeChange, onManualI
     setIsApplying(true);
     setStatusText(`Applying ${displayTemp(temp, unit)}${unitLabel(unit)} (~30s)`);
     try {
-      const res = await setTemp(mode, temp, true);
+      const res = await setTemp(mode, temp);
       if (!res.ok) {
         setStatusText('Error setting temperature');
         setIsApplying(false);
       }
-      // Keep isApplying=true — it'll clear when the next poll shows the new value
-      // or after a timeout
       setTimeout(() => setIsApplying(false), 35000);
     } catch {
       setStatusText('Connection error');
@@ -70,7 +70,6 @@ export default function ManualView({ status, unit, mode, onModeChange, onManualI
     const clamped = clamp(temp);
     setDialTemp(clamped);
     setStatusText(`Set to ${displayTemp(clamped, unit)}${unitLabel(unit)}`);
-    setActivePreset(null);
     setIsPending(true);
     setIsApplying(false);
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -79,24 +78,11 @@ export default function ManualView({ status, unit, mode, onModeChange, onManualI
 
   const handleDragStart = useCallback(() => {
     setIsDragging(true);
-    onManualInteraction();
-  }, [onManualInteraction]);
+  }, []);
 
   const handleDragEnd = useCallback(() => {
     setIsDragging(false);
   }, []);
-
-  const handlePreset = useCallback((temp: number) => {
-    const clamped = clamp(temp);
-    setDialTemp(clamped);
-    setActivePreset(temp);
-    setIsPending(true);
-    setIsApplying(false);
-    setStatusText(`Set to ${displayTemp(clamped, unit)}${unitLabel(unit)}`);
-    onManualInteraction();
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => doSend(clamped), DEBOUNCE_MS);
-  }, [unit, doSend, onManualInteraction, min, max]);
 
   return (
     <div className="manual-view">
@@ -130,7 +116,6 @@ export default function ManualView({ status, unit, mode, onModeChange, onManualI
 
       {/* Center column */}
       <div className="col col-center">
-        <span className="label" style={{ position: 'absolute', top: 0 }}>Target Temperature</span>
         <TemperatureDial
           temp={displayedTemp}
           mode={mode}
@@ -141,6 +126,7 @@ export default function ManualView({ status, unit, mode, onModeChange, onManualI
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         />
+        <span className="mode-label">{modeLabel(controlMode, status)}</span>
         <div className="pill-control">
           <div
             className={`pill-segment${mode === 'cool' ? ' active' : ''}`}
@@ -155,7 +141,7 @@ export default function ManualView({ status, unit, mode, onModeChange, onManualI
         </div>
       </div>
 
-      {/* Right column */}
+      {/* Right column — system info (no presets) */}
       <div className="col">
         <div>
           <span className="label">System Status</span>
@@ -165,23 +151,23 @@ export default function ManualView({ status, unit, mode, onModeChange, onManualI
               <span className="info-val">{mode === 'heat' ? 'Heat' : 'Cool'}</span>
             </div>
             <div className="info-item">
+              <span className="info-label">Control</span>
+              <span className="info-val">{modeLabel(controlMode, status)}</span>
+            </div>
+            <div className="info-item">
               <span className="info-label">Model</span>
               <span className="info-val">SYSTXCCITN01</span>
             </div>
           </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <span className="label">Presets</span>
-          {PRESETS.map(p => (
-            <button
-              key={p.temp}
-              className={`preset-btn${activePreset === p.temp ? ' active' : ''}`}
-              onClick={() => handlePreset(p.temp)}
-            >
-              <span>{p.name}</span>
-              <span className="preset-temp">{displayTemp(p.temp, unit)}{unitLabel(unit)}</span>
-            </button>
-          ))}
+        <div>
+          <span className="label">Energy (YTD)</span>
+          <div className="info-list" style={{ marginTop: 12 }}>
+            <div className="info-item">
+              <span className="info-label">Total</span>
+              <span className="info-val">{status?.energy_ytd != null ? `${status.energy_ytd} kWh` : '--'}</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>

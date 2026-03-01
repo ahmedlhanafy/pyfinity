@@ -55,28 +55,35 @@ class CarrierInfinityDevice:
             self._cache[key] = value
         return self._cache[key]
 
+    def _read_with_retry(self, device, table, max_retries=3):
+        """Read a table with retries."""
+        for _ in range(max_retries):
+            try:
+                data = self.bus.read_table(device, table)
+                if data:
+                    return data
+            except OSError:
+                pass
+            time.sleep(0.3)
+        return None
+
     def get_status(self) -> dict:
         """Read indoor/outdoor temps and setpoints.
 
-        Indoor: primary TS 004907[60], fallback HP 000304[10]
-        Outdoor: primary HP 00061f[32], fallback TS 004901[16]
-        Both sources can be flaky so we try primary first, fall back if None.
-        Returns cached values when fresh reads fail.
+        Indoor: HP 000304[10] (most reliable)
+        Outdoor: TS 004901[16] (thermostat's cached outdoor reading)
+        Setpoints: TS 00400a[25]/[26] (always reliable)
+        All reads have retries. Returns cached values when reads fail.
         """
-        # Indoor: thermostat table is more accurate
-        data = self.bus.read_table(TSTAT, "004907")
-        indoor = data[60] if data and len(data) > 60 else None
-        if not _valid_temp(indoor):
-            data = self.bus.read_table(HEATPUMP, "000304")
-            indoor = data[10] if data and len(data) > 10 else None
+        # Indoor: heat pump table is most reliable
+        data = self._read_with_retry(HEATPUMP, "000304")
+        indoor = data[10] if data and len(data) > 10 else None
 
-        # Outdoor: heat pump sensor is fresher than thermostat cache
-        data = self.bus.read_table(HEATPUMP, "00061f")
-        outdoor = data[32] if data and len(data) > 32 else None
-        if not _valid_temp(outdoor):
-            data = self.bus.read_table(TSTAT, "004901")
-            outdoor = data[16] if data and len(data) > 16 else None
+        # Outdoor: thermostat cached value (stable, within 1-2°F of display)
+        data = self._read_with_retry(TSTAT, "004901")
+        outdoor = data[16] if data and len(data) > 16 else None
 
+        # Setpoints: comfort profile (always reliable)
         profile = self.read_comfort_profile()
         heat_sp = profile[HEAT_SETPOINT_BYTE] if profile else None
         cool_sp = profile[COOL_SETPOINT_BYTE] if profile else None

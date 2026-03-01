@@ -25,13 +25,14 @@ interface TemperatureDialProps {
   onDragEnd: () => void;
 }
 
-const SIZE = 260;
-const CX = 130;
-const CY = 130;
-const R = 110;
+// Internal canvas resolution (always draws at this size)
+const BASE = 260;
+const BASE_CX = 130;
+const BASE_CY = 130;
+const BASE_R = 110;
 const LINE_W = 22;
 const SEGMENTS = 100;
-const THUMB_SIZE = 28;
+const THUMB_BASE = 28;
 const ANIM_DURATION = 400;
 
 function easeInOutQuad(t: number): number {
@@ -61,21 +62,28 @@ function interpolateGradient(
 function drawArc(
   ctx: CanvasRenderingContext2D,
   displayColors: [number, number, number][],
+  size: number,
 ) {
+  const scale = size / BASE;
+  const cx = BASE_CX * scale;
+  const cy = BASE_CY * scale;
+  const r = BASE_R * scale;
+  const lineW = LINE_W * scale;
+
   const startRad = (ARC_START_DEG * Math.PI) / 180;
   const sweepRad = (ARC_SWEEP_DEG * Math.PI) / 180;
   const segAngle = sweepRad / SEGMENTS;
 
-  ctx.clearRect(0, 0, SIZE, SIZE);
+  ctx.clearRect(0, 0, size, size);
   ctx.lineCap = 'round';
-  ctx.lineWidth = LINE_W;
+  ctx.lineWidth = lineW;
 
   for (let i = 0; i < SEGMENTS; i++) {
     const a0 = startRad + i * segAngle;
-    const a1 = a0 + segAngle + 0.005; // slight overlap to prevent gaps
+    const a1 = a0 + segAngle + 0.005;
     const color = displayColors[i];
     ctx.beginPath();
-    ctx.arc(CX, CY, R, a0, a1);
+    ctx.arc(cx, cy, r, a0, a1);
     ctx.strokeStyle = `rgb(${color[0]},${color[1]},${color[2]})`;
     ctx.stroke();
   }
@@ -96,7 +104,28 @@ export default function TemperatureDial({
   const displayColorsRef = useRef<[number, number, number][]>([]);
   const animFrameRef = useRef<number>(0);
   const prevModeRef = useRef<HvacMode>(mode);
-  const [_dragging, setDragging] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [dialSize, setDialSize] = useState(BASE);
+
+  // Measure container
+  useEffect(() => {
+    const measure = () => {
+      if (wrapRef.current) {
+        const w = wrapRef.current.clientWidth;
+        if (w > 0 && w !== dialSize) setDialSize(w);
+      }
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    if (wrapRef.current) ro.observe(wrapRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const scale = dialSize / BASE;
+  const cx = BASE_CX * scale;
+  const cy = BASE_CY * scale;
+  const r = BASE_R * scale;
+  const thumbSize = THUMB_BASE * scale;
 
   // Build target colors for current mode
   const targetStops = mode === 'heat' ? getColorStops(HEAT_COLORS) : getColorStops(COOL_COLORS);
@@ -109,7 +138,6 @@ export default function TemperatureDial({
     [],
   );
 
-  // Initialize display colors
   if (displayColorsRef.current.length === 0) {
     displayColorsRef.current = buildSegmentColors(targetStops);
   }
@@ -139,7 +167,7 @@ export default function TemperatureDial({
       displayColorsRef.current = current;
 
       const ctx = canvasRef.current?.getContext('2d');
-      if (ctx) drawArc(ctx, current);
+      if (ctx) drawArc(ctx, current, dialSize);
 
       if (t < 1) {
         animFrameRef.current = requestAnimationFrame(animate);
@@ -149,29 +177,28 @@ export default function TemperatureDial({
     cancelAnimationFrame(animFrameRef.current);
     animFrameRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animFrameRef.current);
-  }, [mode, buildSegmentColors]);
+  }, [mode, buildSegmentColors, dialSize]);
 
-  // Draw arc on mount and temp change (when not animating mode transition)
+  // Draw arc on mount, temp change, or resize
   useEffect(() => {
     const ctx = canvasRef.current?.getContext('2d');
     if (!ctx) return;
-    // Update colors if not mid-animation
     displayColorsRef.current = buildSegmentColors(targetStops);
-    drawArc(ctx, displayColorsRef.current);
-  }, [temp, buildSegmentColors, targetStops]);
+    drawArc(ctx, displayColorsRef.current, dialSize);
+  }, [temp, buildSegmentColors, targetStops, dialSize]);
 
   // Compute angle from pointer event relative to dial center
   const angleFromEvent = useCallback(
     (clientX: number, clientY: number): number => {
       const rect = wrapRef.current?.getBoundingClientRect();
       if (!rect) return 0;
-      const dx = clientX - (rect.left + CX);
-      const dy = clientY - (rect.top + CY);
+      const dx = clientX - (rect.left + cx);
+      const dy = clientY - (rect.top + cy);
       let deg = (Math.atan2(dy, dx) * 180) / Math.PI;
       if (deg < 0) deg += 360;
       return deg;
     },
-    [],
+    [cx, cy],
   );
 
   const tempFromEvent = useCallback(
@@ -184,10 +211,8 @@ export default function TemperatureDial({
     [angleFromEvent],
   );
 
-  // Click on arc
   const handleArcClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      // Don't handle if click was on thumb
       if ((e.target as HTMLElement).classList.contains('dial-thumb')) return;
       const t = tempFromEvent(e.clientX, e.clientY);
       onTempChange(t);
@@ -195,7 +220,6 @@ export default function TemperatureDial({
     [tempFromEvent, onTempChange],
   );
 
-  // Drag handlers
   const handleDragStart = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
       e.preventDefault();
@@ -204,9 +228,9 @@ export default function TemperatureDial({
 
       let lastT = temp ?? 0;
       const onMove = (ev: MouseEvent | TouchEvent) => {
-        const cx = 'touches' in ev ? ev.touches[0].clientX : ev.clientX;
-        const cy = 'touches' in ev ? ev.touches[0].clientY : ev.clientY;
-        const t = tempFromEvent(cx, cy);
+        const px = 'touches' in ev ? ev.touches[0].clientX : ev.clientX;
+        const py = 'touches' in ev ? ev.touches[0].clientY : ev.clientY;
+        const t = tempFromEvent(px, py);
         if (t !== lastT && navigator.vibrate) navigator.vibrate(4);
         lastT = t;
         onTempChange(t);
@@ -230,12 +254,12 @@ export default function TemperatureDial({
   );
 
   // Thumb position
-  let thumbX = CX;
-  let thumbY = CY;
+  let thumbX = cx;
+  let thumbY = cy;
   if (temp != null) {
     const angle = (tempToAngle(temp) * Math.PI) / 180;
-    thumbX = CX + R * Math.cos(angle);
-    thumbY = CY + R * Math.sin(angle);
+    thumbX = cx + r * Math.cos(angle);
+    thumbY = cy + r * Math.sin(angle);
   }
 
   return (
@@ -247,9 +271,9 @@ export default function TemperatureDial({
       <canvas
         ref={canvasRef}
         className="dial-canvas"
-        width={SIZE}
-        height={SIZE}
-        style={{ width: SIZE, height: SIZE }}
+        width={dialSize}
+        height={dialSize}
+        style={{ width: dialSize, height: dialSize }}
       />
 
       <div className="dial-center">
@@ -261,15 +285,28 @@ export default function TemperatureDial({
       </div>
 
       {temp != null && (
-        <div
-          className={`dial-thumb${isPending ? ' pending' : ''}`}
-          style={{
-            left: thumbX - THUMB_SIZE / 2,
-            top: thumbY - THUMB_SIZE / 2,
-          }}
-          onMouseDown={handleDragStart}
-          onTouchStart={handleDragStart}
-        />
+        <>
+          <div
+            className={`dial-thumb${isPending ? ' pending' : ''}`}
+            style={{
+              width: thumbSize,
+              height: thumbSize,
+              left: thumbX - thumbSize / 2,
+              top: thumbY - thumbSize / 2,
+            }}
+            onMouseDown={handleDragStart}
+            onTouchStart={handleDragStart}
+          />
+          <div
+            className={`dial-tooltip${dragging ? ' visible' : ''}`}
+            style={{
+              left: thumbX,
+              top: thumbY - thumbSize / 2 - 2,
+            }}
+          >
+            {displayTemp(temp, unit)}{unitLabel(unit)}
+          </div>
+        </>
       )}
     </div>
   );

@@ -1,3 +1,9 @@
+export type ControlMode = 'manual' | 'schedule' | 'ring';
+export type ActiveTab = 'home' | 'mode' | 'energy';
+export type Unit = 'F' | 'C';
+export type HvacMode = 'heat' | 'cool';
+export type Theme = 'dark' | 'light';
+
 export interface StatusResponse {
   indoor_temp: number | null;
   outdoor_temp: number | null;
@@ -6,11 +12,12 @@ export interface StatusResponse {
   energy_yesterday: number | null;
   energy_2days: number | null;
   energy_ytd: number | null;
-  schedule_mode: 'manual' | 'schedule';
+  control_mode: ControlMode;
   active_period: string | null;
   active_period_heat: number | null;
   active_period_cool: number | null;
   next_transition: string | null;
+  ring_mode: string | null;
 }
 
 export interface Period {
@@ -21,11 +28,44 @@ export interface Period {
 }
 
 export interface ScheduleData {
-  mode: 'manual' | 'schedule';
+  mode: ControlMode;
   weekday: Period[];
   weekend: Period[];
+  ring: RingConfig;
 }
 
-export type Unit = 'F' | 'C';
-export type HvacMode = 'heat' | 'cool';
-export type Theme = 'dark' | 'light';
+export interface RingModeTemps {
+  heat: number;
+  cool: number;
+}
+
+export interface RingConfig {
+  disarmed: RingModeTemps;
+  home: RingModeTemps;
+  away: RingModeTemps;
+}
+
+export interface RingStatus {
+  mode: 'disarmed' | 'home' | 'away' | null;
+  connected: boolean;
+}
+
+export interface EnergyDay {
+  date: string;
+  hp_heat: number;
+  cooling: number;
+  elec_heat: number;
+  fan: number;
+  reheat: number;
+}
+
+export interface EnergyResponse {
+  range: 'day' | 'week' | 'year';
+  data: EnergyDay[];
+}
+
+export interface Settings {
+  unit: Unit;
+  theme: Theme;
+  cost_per_kwh: number;
+}

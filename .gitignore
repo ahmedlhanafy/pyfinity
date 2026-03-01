@@ -3,3 +3,7 @@ table_dump.txt
 web/node_modules/
 schedule.json
 __pycache__/
+.env
+ring_auth.json
+energy_history.json
+settings.json

@@ -1,28 +1,16 @@
 import { useEffect, useState } from 'react';
-import type { Unit, Theme } from '../types';
+import { GearSix, ArrowLeft } from '@phosphor-icons/react';
 
 interface TopBarProps {
-  unit: Unit;
-  theme: Theme;
-  scheduleMode: 'manual' | 'schedule';
   isConnected: boolean;
-  onUnitChange: (unit: Unit) => void;
-  onThemeChange: (theme: Theme) => void;
-  onScheduleModeChange: (mode: 'manual' | 'schedule') => void;
+  showSettings: boolean;
+  onSettingsClick: () => void;
 }
 
 const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-export default function TopBar({
-  unit,
-  theme,
-  scheduleMode,
-  isConnected,
-  onUnitChange,
-  onThemeChange,
-  onScheduleModeChange,
-}: TopBarProps) {
+export default function TopBar({ isConnected, showSettings, onSettingsClick }: TopBarProps) {
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -37,41 +25,21 @@ export default function TopBar({
   return (
     <div className="top-bar">
       <div className="top-left">
-        <div className="live-clock">{h}:{m}</div>
-        <div className="live-clock-date">{dateStr}</div>
-      </div>
-      <div className="top-center">
-        <div className="pill-mode-toggle">
-          <div
-            className={`pill-mt${scheduleMode === 'manual' ? ' active' : ''}`}
-            onClick={() => onScheduleModeChange('manual')}
-          >Manual</div>
-          <div
-            className={`pill-mt${scheduleMode === 'schedule' ? ' active' : ''}`}
-            onClick={() => onScheduleModeChange('schedule')}
-          >Schedule</div>
-        </div>
+        {showSettings ? (
+          <span className="label" style={{ marginBottom: 0, fontSize: 13, letterSpacing: 1 }}>Settings</span>
+        ) : (
+          <>
+            <div className="live-clock">{h}:{m}</div>
+            <div className="live-clock-date">{dateStr}</div>
+          </>
+        )}
       </div>
       <div className="top-right">
         <span className="conn-indicator">
           <span className={`status-dot ${isConnected ? 'ok' : 'err'}`} />
         </span>
-        <div className="unit-toggle">
-          <button
-            className={`unit-btn${unit === 'F' ? ' active' : ''}`}
-            onClick={() => onUnitChange('F')}
-          >°F</button>
-          <button
-            className={`unit-btn${unit === 'C' ? ' active' : ''}`}
-            onClick={() => onUnitChange('C')}
-          >°C</button>
-        </div>
-        <button
-          className="theme-btn"
-          onClick={() => onThemeChange(theme === 'dark' ? 'light' : 'dark')}
-          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-        >
-          {theme === 'dark' ? '☀️' : '🌙'}
+        <button className="settings-btn" onClick={onSettingsClick} title={showSettings ? 'Back' : 'Settings'}>
+          {showSettings ? <ArrowLeft size={18} weight="regular" /> : <GearSix size={18} weight="regular" />}
         </button>
       </div>
     </div>
