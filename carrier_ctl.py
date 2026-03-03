@@ -18,18 +18,22 @@ from carrier_infinity_lib.device import CarrierInfinityDevice
 from carrier_infinity_lib.serial_bus import SerialBus
 
 
-def print_status(device: CarrierInfinityDevice):
+def print_status(device: CarrierInfinityDevice, force=False):
     """Read and display indoor temp, outdoor temp, setpoints, and energy."""
-    status = device.get_status()
+    status = device.get_status(force_fresh=force)
     indoor = status["indoor_temp"]
     outdoor = status["outdoor_temp"]
     heat_sp = status["heat_setpoint"]
     cool_sp = status["cool_setpoint"]
 
-    print(f"Indoor:    {indoor}°F" if indoor else "Indoor:    --")
-    print(f"Outdoor:   {outdoor}°F" if outdoor else "Outdoor:   --")
-    print(f"Heat set:  {heat_sp}°F" if heat_sp else "Heat set:  --")
-    print(f"Cool set:  {cool_sp}°F" if cool_sp else "Cool set:  --")
+    cached = status.get("cached", {})
+    def tag(key):
+        return " (cached)" if cached.get(key) else ""
+
+    print(f"Indoor:    {indoor}°F{tag('indoor_temp')}" if indoor else "Indoor:    --")
+    print(f"Outdoor:   {outdoor}°F{tag('outdoor_temp')}" if outdoor else "Outdoor:   --")
+    print(f"Heat set:  {heat_sp}°F{tag('heat_setpoint')}" if heat_sp else "Heat set:  --")
+    print(f"Cool set:  {cool_sp}°F{tag('cool_setpoint')}" if cool_sp else "Cool set:  --")
 
     days = device.get_daily_energy()
     if days:
@@ -82,7 +86,8 @@ def main():
     parser.add_argument("--port", help="serial port (auto-detected if omitted)")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("status", help="read current temps and setpoints")
+    status_parser = sub.add_parser("status", help="read current temps and setpoints")
+    status_parser.add_argument("-f", "--force", action="store_true", help="force fresh read, no cache fallback")
 
     heat_parser = sub.add_parser("set-heat", help="set heat setpoint")
     heat_parser.add_argument("temp", type=int, help=f"target temperature ({HEAT_MIN}-{HEAT_MAX}°F)")
@@ -106,7 +111,7 @@ def main():
 
     try:
         if args.command == "status":
-            print_status(device)
+            print_status(device, force=args.force)
         elif args.command == "set-heat":
             if not HEAT_MIN <= args.temp <= HEAT_MAX:
                 print(f"Error: temperature must be {HEAT_MIN}-{HEAT_MAX}°F")

@@ -67,13 +67,14 @@ class CarrierInfinityDevice:
             time.sleep(0.3)
         return None
 
-    def get_status(self) -> dict:
+    def get_status(self, force_fresh=False) -> dict:
         """Read indoor/outdoor temps and setpoints.
 
         Indoor: HP 000304[10] (most reliable)
         Outdoor: TS 004901[16] (thermostat's cached outdoor reading)
         Setpoints: TS 00400a[25]/[26] (always reliable)
-        All reads have retries. Returns cached values when reads fail.
+        All reads have retries. Returns cached values when reads fail
+        unless force_fresh=True (returns None instead of cache).
         """
         # Indoor: heat pump table is most reliable
         data = self._read_with_retry(HEATPUMP, "000304")
@@ -88,11 +89,26 @@ class CarrierInfinityDevice:
         heat_sp = profile[HEAT_SETPOINT_BYTE] if profile else None
         cool_sp = profile[COOL_SETPOINT_BYTE] if profile else None
 
+        if force_fresh:
+            return {
+                "indoor_temp": indoor if _valid_temp(indoor) else None,
+                "outdoor_temp": outdoor if _valid_temp(outdoor) else None,
+                "heat_setpoint": heat_sp if _valid_temp(heat_sp) else None,
+                "cool_setpoint": cool_sp if _valid_temp(cool_sp) else None,
+                "cached": {},
+            }
+
         return {
             "indoor_temp": self._read_or_cache("indoor_temp", indoor),
             "outdoor_temp": self._read_or_cache("outdoor_temp", outdoor),
             "heat_setpoint": self._read_or_cache("heat_setpoint", heat_sp),
             "cool_setpoint": self._read_or_cache("cool_setpoint", cool_sp),
+            "cached": {
+                "indoor_temp": not _valid_temp(indoor),
+                "outdoor_temp": not _valid_temp(outdoor),
+                "heat_setpoint": not _valid_temp(heat_sp),
+                "cool_setpoint": not _valid_temp(cool_sp),
+            },
         }
 
     def get_daily_energy(self) -> list[dict]:
