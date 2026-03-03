@@ -6,6 +6,7 @@ import struct
 import time
 
 from .const import (
+    AIRHANDLER,
     COOL_SETPOINT_BYTE,
     HEAT_SETPOINT_BYTE,
     HEATPUMP,
@@ -88,9 +89,9 @@ class CarrierInfinityDevice:
             except struct.error:
                 pass
 
-        # Outdoor: thermostat cached value (stable, within 1-2°F of display)
-        data = self._read_with_retry(TSTAT, "004901")
-        outdoor = data[16] if data and len(data) > 16 else None
+        # Outdoor: air handler table 000402, byte[3] (matches thermostat display)
+        data = self._read_with_retry(AIRHANDLER, "000402")
+        outdoor = data[3] if data and len(data) > 3 else None
 
         # Setpoints: comfort profile (always reliable)
         profile = self.read_comfort_profile()
