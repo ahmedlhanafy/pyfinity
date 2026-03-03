@@ -1,6 +1,7 @@
 """High-level Carrier Infinity device operations."""
 
 import logging
+import math
 import struct
 import time
 
@@ -76,9 +77,16 @@ class CarrierInfinityDevice:
         All reads have retries. Returns cached values when reads fail
         unless force_fresh=True (returns None instead of cache).
         """
-        # Indoor: heat pump table is most reliable
-        data = self._read_with_retry(HEATPUMP, "000304")
-        indoor = data[10] if data and len(data) > 10 else None
+        # Indoor: thermostat table 004102, IEEE 754 float at bytes 7-10
+        data = self._read_with_retry(TSTAT, "004102")
+        indoor = None
+        if data and len(data) > 10:
+            try:
+                f = struct.unpack(">f", data[7:11])[0]
+                if 20 < f < 120:
+                    indoor = round(f)
+            except struct.error:
+                pass
 
         # Outdoor: thermostat cached value (stable, within 1-2°F of display)
         data = self._read_with_retry(TSTAT, "004901")
