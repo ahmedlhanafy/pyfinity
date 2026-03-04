@@ -655,6 +655,121 @@ def api_energy():
     return json_response({"error": "Invalid range"}, 400)
 
 
+# ── Energy REST API ──────────────────────────────────────────────────
+
+@app.route("/api/energy/daily", methods=["GET"])
+def api_energy_daily():
+    """Get daily energy breakdown from thermostat.
+
+    Query params:
+        days (int): number of past days to return (default 7, max 30)
+
+    Returns: { data: [{ date, hp_heat, cooling, elec_heat, fan, reheat, total }] }
+    """
+    days_count = min(int(request.args.get("days", 7)), 30)
+    history = load_energy_history()
+    daily = _get_device_daily()
+
+    data = {}
+    # History for older dates
+    for i in range(1, days_count + 1):
+        date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
+        if date in history:
+            data[date] = history[date]
+
+    # Device records override (fresher)
+    for i, d in enumerate(daily):
+        date = (datetime.now() - timedelta(days=i + 1)).strftime("%Y-%m-%d")
+        data[date] = d
+
+    result = []
+    for date in sorted(data.keys()):
+        d = data[date]
+        total = sum(d.get(k, 0) for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"])
+        result.append({"date": date, **d, "total": total})
+
+    return json_response({"data": result})
+
+
+@app.route("/api/energy/yearly", methods=["GET"])
+def api_energy_yearly():
+    """Get yearly energy totals from thermostat.
+
+    Returns: { current_year, previous_year, data: { current: {...}, previous: {...} } }
+    """
+    try:
+        yearly = with_device(lambda d: d.get_yearly_energy())
+    except Exception:
+        yearly = None
+
+    if not yearly:
+        return json_response({"error": "Could not read yearly energy"}, 500)
+
+    now = datetime.now()
+    current = yearly.get("current", {})
+    previous = yearly.get("previous", {})
+
+    cur_total = sum(current.get(k, 0) for k in ["hp_heat", "elec_heat", "cooling"])
+    prev_total = sum(previous.get(k, 0) for k in ["hp_heat", "elec_heat", "cooling", "fan"])
+
+    return json_response({
+        "current_year": now.year,
+        "previous_year": now.year - 1,
+        "data": {
+            "current": {**current, "total": cur_total},
+            "previous": {**previous, "total": prev_total},
+        },
+    })
+
+
+@app.route("/api/energy/summary", methods=["GET"])
+def api_energy_summary():
+    """Get energy summary: yesterday, last 7 days, YTD.
+
+    Query params:
+        cost_per_kwh (float): $/kWh for cost calculation (default from settings)
+
+    Returns: { yesterday, last_7_days, ytd, cost_per_kwh }
+    """
+    settings = load_settings()
+    cost = float(request.args.get("cost_per_kwh", settings.get("cost_per_kwh", 0.12)))
+
+    # Yesterday
+    daily = _get_device_daily()
+    yesterday_kwh = 0
+    if daily:
+        d = daily[0]
+        yesterday_kwh = sum(d.get(k, 0) for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"])
+
+    # Last 7 days
+    history = load_energy_history()
+    week_kwh = 0
+    for i, d in enumerate(daily):
+        week_kwh += sum(d.get(k, 0) for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"])
+    # Add from history for days beyond device range
+    for i in range(len(daily) + 1, 8):
+        date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
+        if date in history:
+            week_kwh += sum(history[date].get(k, 0) for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"])
+
+    # YTD
+    ytd_kwh = 0
+    try:
+        yearly = with_device(lambda d: d.get_yearly_energy())
+        if yearly and "current" in yearly:
+            c = yearly["current"]
+            ytd_kwh = sum(c.get(k, 0) for k in ["hp_heat", "elec_heat", "cooling"])
+    except Exception:
+        pass
+
+    return json_response({
+        "yesterday": {"kwh": yesterday_kwh, "cost": round(yesterday_kwh * cost, 2)},
+        "last_7_days": {"kwh": week_kwh, "cost": round(week_kwh * cost, 2)},
+        "ytd": {"kwh": ytd_kwh, "cost": round(ytd_kwh * cost, 2)},
+        "cost_per_kwh": cost,
+    })
+
+
 @app.route("/api/settings", methods=["GET"])
 def api_settings_get():
     return json_response(load_settings())
