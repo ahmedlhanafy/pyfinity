@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import type { Unit, HvacMode } from '../types';
+import { dialTick } from '../haptics';
 import {
   TEMP_MIN,
   TEMP_MAX,
@@ -231,7 +232,7 @@ export default function TemperatureDial({
         const px = 'touches' in ev ? ev.touches[0].clientX : ev.clientX;
         const py = 'touches' in ev ? ev.touches[0].clientY : ev.clientY;
         const t = tempFromEvent(px, py);
-        if (t !== lastT && navigator.vibrate) navigator.vibrate(4);
+        if (t !== lastT) dialTick();
         lastT = t;
         onTempChange(t);
       };

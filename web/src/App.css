@@ -503,9 +503,9 @@ body {
         max-width: none !important;
         margin: 0 auto;
     }
-    .temp-large { font-size: 52px; }
-    .temp-large .unit { font-size: 22px; }
-    .dial-status { font-size: 9px; }
+    .temp-large { font-size: 18vw; }
+    .temp-large .unit { font-size: 7vw; }
+    .dial-status { font-size: 3vw; letter-spacing: 3px; }
 
     .pill-control { margin: 0 auto 8px; }
 

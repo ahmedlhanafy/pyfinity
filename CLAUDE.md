@@ -30,3 +30,4 @@ Full reverse engineering notes, table dump, and methodology: @progress.txt
 
 ## Always
 - When making any changes or discoveries, update @progress.txt with the new findings
+- NEVER commit and push without asking me first

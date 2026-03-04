@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback } from 'react';
 import type { Unit, HvacMode } from '../types';
+import { dialTick } from '../haptics';
 import {
   ARC_START_DEG,
   ARC_SWEEP_DEG,
@@ -122,7 +123,7 @@ export default function MiniDial({
         const cx = 'touches' in ev ? ev.touches[0].clientX : ev.clientX;
         const cy = 'touches' in ev ? ev.touches[0].clientY : ev.clientY;
         const t = tempFromEvent(cx, cy);
-        if (t !== lastT && navigator.vibrate) navigator.vibrate(4);
+        if (t !== lastT) dialTick();
         lastT = t;
         onTempChange(t);
       };
