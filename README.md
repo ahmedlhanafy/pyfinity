@@ -1,8 +1,19 @@
-# pyfinity
+<p align="center">
+  <img src="icon.png" width="350" alt="Pyfinity Icon" />
+</p>
 
-Remote control for **non-WiFi Carrier Infinity Touch thermostats** via the RS-485 ABCD bus.
+<h1 align="center">pyfinity</h1>
 
-This is the first known solution for controlling a Carrier Infinity Touch thermostat (SYSTXCCITN01) without WiFi. No cloud, no proprietary hardware — just a $15 USB adapter and Python.
+<p align="center">
+  Remote control for <b>non-WiFi Carrier Infinity Touch thermostats</b> via the RS-485 ABCD bus.
+</p>
+
+<p align="center">
+  The first known solution for controlling a Carrier Infinity Touch thermostat (SYSTXCCITN01) without WiFi.<br/>
+  No cloud, no proprietary hardware — just a $15 USB adapter and Python.
+</p>
+
+---
 
 ## What it does
 

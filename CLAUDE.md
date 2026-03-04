@@ -25,6 +25,21 @@ Remote control of non-WiFi Carrier Infinity Touch thermostat (SYSTXCCITN01) via 
 ## Write Method
 Read table 00400a → replace current setpoint bytes → write back. Repeat 6 rounds at 5s intervals (timing-dependent).
 
+## Raspberry Pi Deployment
+- Host: `ahmedelhanafy@carrier.local`
+- App dir: `/opt/pyfinity` (owned by root)
+- Repo: `~/pyfinity` (user clone for git pull)
+- Deploy: `cd ~/pyfinity && git pull && bash setup_pi.sh`
+- setup_pi.sh copies files to /opt/pyfinity, preserves config files (settings.json, energy_history.json, etc.)
+- Service: `pyfinity.service` (systemd), runs as root on port 5050
+
+## Energy Data Architecture
+- **Bus reads**: Only the 2 AM background collector reads daily energy from the RS-485 bus (table 00460e)
+- **Storage**: `energy_history.json` in /opt/pyfinity, keyed by date (YYYY-MM-DD)
+- **API endpoints**: `/api/energy`, `/api/energy/daily`, `/api/energy/summary` all read from history JSON only — no bus reads
+- **Yearly energy**: `/api/energy/yearly` and `/api/energy?range=year` still read from bus (table 004610) since there's no history equivalent
+- **Corruption filter**: Collector skips records with any category > 150 kWh
+
 ## Progress & Research
 Full reverse engineering notes, table dump, and methodology: @progress.txt
 
