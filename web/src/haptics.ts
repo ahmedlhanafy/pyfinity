@@ -1,14 +1,4 @@
-import { WebHaptics } from 'web-haptics';
-
-// Shared haptics instance
-let haptics: WebHaptics | null = null;
-
-function getHaptics(): WebHaptics {
-  if (!haptics) {
-    haptics = new WebHaptics();
-  }
-  return haptics;
-}
+import { haptic } from 'ios-haptics';
 
 // Audio context for tick sound
 let audioCtx: AudioContext | null = null;
@@ -45,10 +35,6 @@ function playTick() {
 
 /** Trigger haptic + tick sound for dial rotation */
 export function dialTick() {
-  try {
-    getHaptics().trigger(4);
-  } catch {
-    // Haptics not supported
-  }
+  haptic();
   playTick();
 }
