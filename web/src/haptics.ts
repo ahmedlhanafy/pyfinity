@@ -1,4 +1,5 @@
-import { haptic } from 'ios-haptics';
+import { useWebHaptics } from 'web-haptics/react';
+import { useRef, useCallback } from 'react';
 
 // Audio context for tick sound
 let audioCtx: AudioContext | null = null;
@@ -33,8 +34,14 @@ function playTick() {
   }
 }
 
-/** Trigger haptic + tick sound for dial rotation */
-export function dialTick() {
-  haptic();
-  playTick();
+/** Hook: returns a dialTick function with haptic + sound */
+export function useDialTick() {
+  const { trigger } = useWebHaptics();
+  const triggerRef = useRef(trigger);
+  triggerRef.current = trigger;
+
+  return useCallback(() => {
+    triggerRef.current();
+    playTick();
+  }, []);
 }

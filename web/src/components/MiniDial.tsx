@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback } from 'react';
 import type { Unit, HvacMode } from '../types';
-import { dialTick } from '../haptics';
+import { useDialTick } from '../haptics';
 import {
   ARC_START_DEG,
   ARC_SWEEP_DEG,
@@ -77,6 +77,7 @@ export default function MiniDial({
 }: MiniDialProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const dialTick = useDialTick();
 
   // Build segment colors
   const stops = (mode === 'heat' ? HEAT_COLORS : COOL_COLORS).map((c) => parseHex(c));

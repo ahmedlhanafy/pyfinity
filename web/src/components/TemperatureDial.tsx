@@ -1,6 +1,6 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import type { Unit, HvacMode } from '../types';
-import { dialTick } from '../haptics';
+import { useDialTick } from '../haptics';
 import {
   TEMP_MIN,
   TEMP_MAX,
@@ -107,6 +107,7 @@ export default function TemperatureDial({
   const prevModeRef = useRef<HvacMode>(mode);
   const [dragging, setDragging] = useState(false);
   const [dialSize, setDialSize] = useState(BASE);
+  const dialTick = useDialTick();
 
   // Measure container
   useEffect(() => {
