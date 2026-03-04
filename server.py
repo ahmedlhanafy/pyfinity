@@ -574,7 +574,8 @@ def api_ring_config_save():
 
 def _valid_daily_record(d: dict) -> bool:
     """Filter out corrupt daily energy records (yearly totals leaking in)."""
-    return all(d.get(k, 0) <= 150 for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"])
+    total = sum(d.get(k, 0) for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"])
+    return total <= 80 and all(d.get(k, 0) <= 60 for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"])
 
 
 def _get_device_daily() -> list[dict]:
