@@ -164,20 +164,24 @@ def save_energy_history(data: dict):
 
 
 def collect_daily_energy():
-    """Collect yesterday's energy and store in history."""
+    """Collect yesterday's energy and store in history. Only runs 2-4 AM."""
+    now = datetime.now()
+    if not (2 <= now.hour < 4):
+        return
+
     try:
-        def read(device):
-            return device.get_daily_energy()
-        daily = with_device(read)
+        daily = with_device(lambda d: d.get_daily_energy())
         if not daily:
             return
 
         history = load_energy_history()
-        # Record[0] = yesterday
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
 
         if yesterday not in history and len(daily) > 0:
             d = daily[0]
+            # Skip if values look like yearly totals (corrupt record)
+            if any(d.get(k, 0) > 150 for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"]):
+                return
             history[yesterday] = {
                 "hp_heat": d.get("hp_heat", 0),
                 "cooling": d.get("cooling", 0),
@@ -186,16 +190,16 @@ def collect_daily_energy():
                 "reheat": d.get("reheat", 0),
             }
             save_energy_history(history)
-            print(f"[energy] Saved energy for {yesterday}")
+            print(f"[energy] Saved energy for {yesterday}: {sum(history[yesterday].values())} kWh")
     except Exception as e:
         print(f"[energy] Collection failed: {e}")
 
 
 def energy_collector_loop():
-    """Background thread: collects energy data once per day."""
+    """Background thread: collects energy data once per day between 2-4 AM."""
     while True:
         collect_daily_energy()
-        time.sleep(3600)  # Check every hour, only writes if date is new
+        time.sleep(1800)  # Check every 30 min
 
 
 # ── Device management ────────────────────────────────────────────────
@@ -600,18 +604,19 @@ def api_energy():
         return json_response({"range": "day", "data": data})
 
     elif range_type == "week":
-        # Record[0] = yesterday, record[1] = 2 days ago, etc.
+        # Device reads are freshest — use them first, history fills older gaps
         data = {}
+        # History for older dates
         for i in range(1, 8):
             date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
             if date in history:
                 data[date] = history[date]
 
+        # Device daily records override history (always fresher)
         daily = _get_device_daily()
         for i, d in enumerate(daily):
             date = (datetime.now() - timedelta(days=i + 1)).strftime("%Y-%m-%d")
-            if date not in data:
-                data[date] = d
+            data[date] = d  # device always wins
 
         result = [{"date": k, **v} for k, v in sorted(data.items())]
         return json_response({"range": "week", "data": result})
