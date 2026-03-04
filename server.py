@@ -593,31 +593,18 @@ def api_energy():
     history = load_energy_history()
 
     if range_type == "day":
-        # Record[0] = yesterday
         yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
         data = []
         if yesterday in history:
             data.append({"date": yesterday, **history[yesterday]})
-        else:
-            daily = _get_device_daily()
-            if daily:
-                data.append({"date": yesterday, **daily[0]})
         return json_response({"range": "day", "data": data})
 
     elif range_type == "week":
-        # Device reads are freshest — use them first, history fills older gaps
         data = {}
-        # History for older dates
         for i in range(1, 8):
             date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
             if date in history:
                 data[date] = history[date]
-
-        # Device daily records override history (always fresher)
-        daily = _get_device_daily()
-        for i, d in enumerate(daily):
-            date = (datetime.now() - timedelta(days=i + 1)).strftime("%Y-%m-%d")
-            data[date] = d  # device always wins
 
         result = [{"date": k, **v} for k, v in sorted(data.items())]
         return json_response({"range": "week", "data": result})
@@ -669,25 +656,14 @@ def api_energy_daily():
     """
     days_count = min(int(request.args.get("days", 7)), 30)
     history = load_energy_history()
-    daily = _get_device_daily()
 
-    data = {}
-    # History for older dates
+    result = []
     for i in range(1, days_count + 1):
         date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
         if date in history:
-            data[date] = history[date]
-
-    # Device records override (fresher)
-    for i, d in enumerate(daily):
-        date = (datetime.now() - timedelta(days=i + 1)).strftime("%Y-%m-%d")
-        data[date] = d
-
-    result = []
-    for date in sorted(data.keys()):
-        d = data[date]
-        total = sum(d.get(k, 0) for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"])
-        result.append({"date": date, **d, "total": total})
+            d = history[date]
+            total = sum(d.get(k, 0) for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"])
+            result.append({"date": date, **d, "total": total})
 
     return json_response({"data": result})
 
@@ -736,19 +712,16 @@ def api_energy_summary():
     cost = float(request.args.get("cost_per_kwh", settings.get("cost_per_kwh", 0.12)))
 
     # Yesterday
-    daily = _get_device_daily()
+    history = load_energy_history()
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     yesterday_kwh = 0
-    if daily:
-        d = daily[0]
+    if yesterday in history:
+        d = history[yesterday]
         yesterday_kwh = sum(d.get(k, 0) for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"])
 
     # Last 7 days
-    history = load_energy_history()
     week_kwh = 0
-    for i, d in enumerate(daily):
-        week_kwh += sum(d.get(k, 0) for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"])
-    # Add from history for days beyond device range
-    for i in range(len(daily) + 1, 8):
+    for i in range(1, 8):
         date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
         if date in history:
             week_kwh += sum(history[date].get(k, 0) for k in ["hp_heat", "cooling", "elec_heat", "fan", "reheat"])
