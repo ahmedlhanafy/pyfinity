@@ -2,7 +2,6 @@ import { useCallback } from 'react';
 import type { StatusResponse, ScheduleData, ControlMode, Unit } from '../types';
 import { setMode } from '../api';
 import ScheduleView from './ScheduleView';
-import RingConfig from './RingConfig';
 
 interface ModeViewProps {
   status: StatusResponse | null;
@@ -13,60 +12,48 @@ interface ModeViewProps {
   onScheduleChange: (data: ScheduleData) => void;
 }
 
-const MODE_OPTIONS: { key: ControlMode; label: string }[] = [
-  { key: 'manual', label: 'Manual' },
-  { key: 'schedule', label: 'Schedule' },
-  { key: 'ring', label: 'Follow Ring' },
-];
-
 export default function ModeView({
   status, unit, controlMode, scheduleData,
   onControlModeChange, onScheduleChange,
 }: ModeViewProps) {
-  const handleModeChange = useCallback((mode: ControlMode) => {
-    onControlModeChange(mode);
-    setMode(mode).catch(() => {});
-  }, [onControlModeChange]);
+  const isScheduleOn = controlMode === 'schedule' || controlMode === 'ring';
+
+  const handleToggle = useCallback(() => {
+    const newMode: ControlMode = isScheduleOn ? 'manual' : 'schedule';
+    onControlModeChange(newMode);
+    setMode(newMode).catch(() => {});
+  }, [isScheduleOn, onControlModeChange]);
 
   return (
     <div className="mode-view">
-      <div className="mode-pills">
-        {MODE_OPTIONS.map(opt => (
-          <button
-            key={opt.key}
-            className={`mode-pill${controlMode === opt.key ? ' active' : ''}`}
-            onClick={() => handleModeChange(opt.key)}
-          >
-            {opt.label}
-          </button>
-        ))}
+      <div className="schedule-toggle-bar">
+        <span style={{ fontSize: 15, fontWeight: 500 }}>Schedule</span>
+        <button
+          className={`toggle-switch${isScheduleOn ? ' on' : ''}`}
+          onClick={handleToggle}
+          aria-label="Toggle schedule"
+        >
+          <span className="toggle-thumb" />
+        </button>
       </div>
 
       <div className="mode-content">
-        {controlMode === 'manual' && (
-          <div className="mode-manual-info">
-            <div className="mode-info-card">
-              <h3 style={{ fontWeight: 400, marginBottom: 8 }}>Manual Mode</h3>
-              <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>
-                You're in manual mode. Adjust the temperature from the Home tab.
-                The thermostat will hold your set temperature until you change it.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {controlMode === 'schedule' && scheduleData && (
+        {isScheduleOn && scheduleData ? (
           <ScheduleView
             status={status}
             unit={unit}
             scheduleData={scheduleData}
             onScheduleChange={onScheduleChange}
           />
-        )}
-
-        {controlMode === 'ring' && (
-          <div className="mode-ring-content">
-            <RingConfig unit={unit} />
+        ) : (
+          <div className="mode-manual-info">
+            <div className="mode-info-card">
+              <h3 style={{ fontWeight: 400, marginBottom: 8 }}>Manual Mode</h3>
+              <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>
+                Schedule is off. Adjust the temperature from the Home tab.
+                The thermostat will hold your set temperature until you change it.
+              </p>
+            </div>
           </div>
         )}
       </div>

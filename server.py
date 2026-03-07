@@ -52,6 +52,12 @@ DEFAULT_SCHEDULE = {
         "home": {"heat": 70, "cool": 74},
         "away": {"heat": 62, "cool": 80},
     },
+    "ring_enabled": False,
+    "ring_mapping": {
+        "disarmed": "home",
+        "home": "home",
+        "away": "away",
+    },
 }
 
 DEFAULT_SETTINGS = {
@@ -266,22 +272,54 @@ def scheduler_loop():
             mode = sched.get("mode", "manual")
 
             if mode == "schedule":
-                period = get_active_period()
-                if period and period["period"] != _last_applied_period:
-                    heat, cool = period["heat"], period["cool"]
-                    print(f"[scheduler] Period changed to: {period['period']} "
-                          f"(heat={heat}, cool={cool})")
-                    try:
-                        with_device(lambda d: d.set_setpoint(heat, HEAT_SETPOINT_BYTE))
-                    except Exception as e:
-                        print(f"[scheduler] Heat set failed: {e}")
-                    try:
-                        with_device(lambda d: d.set_setpoint(cool, COOL_SETPOINT_BYTE))
-                    except Exception as e:
-                        print(f"[scheduler] Cool set failed: {e}")
-                    _last_applied_period = period["period"]
+                # Check if Ring integration overrides schedule
+                ring_override = False
+                if sched.get("ring_enabled"):
+                    with _ring_lock:
+                        ring_mode = _ring_status.get("mode")
+                    if ring_mode:
+                        mapping = sched.get("ring_mapping", {})
+                        mapped_slot = mapping.get(ring_mode)
+                        if mapped_slot:
+                            # Find the mapped slot's temps from current schedule
+                            day_key = "weekend" if datetime.now().weekday() >= 5 else "weekday"
+                            slots = sched.get(day_key, [])
+                            mapped_period = next((s for s in slots if s["period"] == mapped_slot), None)
+                            if mapped_period:
+                                key = f"ring:{ring_mode}:{mapped_slot}"
+                                if key != _last_applied_period:
+                                    heat, cool = mapped_period["heat"], mapped_period["cool"]
+                                    print(f"[scheduler] Ring→{mapped_slot} "
+                                          f"(heat={heat}, cool={cool})")
+                                    try:
+                                        with_device(lambda d: d.set_setpoint(heat, HEAT_SETPOINT_BYTE))
+                                    except Exception as e:
+                                        print(f"[scheduler] Heat set failed: {e}")
+                                    try:
+                                        with_device(lambda d: d.set_setpoint(cool, COOL_SETPOINT_BYTE))
+                                    except Exception as e:
+                                        print(f"[scheduler] Cool set failed: {e}")
+                                    _last_applied_period = key
+                                ring_override = True
+
+                if not ring_override:
+                    period = get_active_period()
+                    if period and period["period"] != _last_applied_period:
+                        heat, cool = period["heat"], period["cool"]
+                        print(f"[scheduler] Period changed to: {period['period']} "
+                              f"(heat={heat}, cool={cool})")
+                        try:
+                            with_device(lambda d: d.set_setpoint(heat, HEAT_SETPOINT_BYTE))
+                        except Exception as e:
+                            print(f"[scheduler] Heat set failed: {e}")
+                        try:
+                            with_device(lambda d: d.set_setpoint(cool, COOL_SETPOINT_BYTE))
+                        except Exception as e:
+                            print(f"[scheduler] Cool set failed: {e}")
+                        _last_applied_period = period["period"]
 
             elif mode == "ring":
+                # Legacy standalone ring mode (backward compat)
                 with _ring_lock:
                     ring_mode = _ring_status.get("mode")
                 if ring_mode:
@@ -511,6 +549,10 @@ def api_schedule_save():
         sched["weekday"] = data["weekday"]
     if "weekend" in data:
         sched["weekend"] = data["weekend"]
+    if "ring_enabled" in data:
+        sched["ring_enabled"] = data["ring_enabled"]
+    if "ring_mapping" in data:
+        sched["ring_mapping"] = data["ring_mapping"]
     save_schedule()
 
     # If in schedule mode, apply current period's temps immediately

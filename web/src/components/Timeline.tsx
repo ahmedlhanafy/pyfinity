@@ -51,6 +51,8 @@ export default function Timeline({
   const [hoverDividerIdx, setHoverDividerIdx] = useState<number | null>(null);
   const [addMenuIdx, setAddMenuIdx] = useState<number | null>(null);
   const [addMenuTime, setAddMenuTime] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const [dropPct, setDropPct] = useState(0);
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000);
@@ -170,9 +172,47 @@ export default function Timeline({
     if (e.target === barRef.current) onSelect(-1);
   }, [onSelect]);
 
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    const barRect = barRef.current?.getBoundingClientRect();
+    if (!barRect) return;
+    const pct = Math.max(0, Math.min(1, (e.clientX - barRect.left) / barRect.width));
+    setDropPct(pct * 100);
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const slotName = e.dataTransfer.getData('text/plain');
+    if (!slotName || !SLOT_PRESETS.map(s => s.toLowerCase()).includes(slotName)) return;
+    const barRect = barRef.current?.getBoundingClientRect();
+    if (!barRect) return;
+    const pct = Math.max(0, Math.min(1, (e.clientX - barRect.left) / barRect.width));
+    const m = snapWithMagnet(Math.round(pct * TOTAL_MIN));
+    // Don't add if dropping on a block of the same type
+    const hitBlock = blocks.find(b => m >= b.startMin && m < b.endMin);
+    if (hitBlock && hitBlock.period.period === slotName) return;
+    onAddSlot(minToTime(m), slotName);
+  }, [onAddSlot, blocks]);
+
+
   return (
     <>
-      <div ref={barRef} className="timeline-bar" style={{ overflow: 'visible' }} onClick={handleBarClick}>
+      <div
+        ref={barRef}
+        className={`timeline-bar${dragOver ? ' drag-over' : ''}`}
+        style={{ overflow: 'visible' }}
+        onClick={handleBarClick}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {/* Blocks */}
         {blocks.map((b) => {
           const widthPct = ((b.endMin - b.startMin) / TOTAL_MIN) * 100;
@@ -340,6 +380,18 @@ export default function Timeline({
           >
             {dragTime}
           </div>
+        )}
+
+        {/* Drop position indicator */}
+        {dragOver && (
+          <div
+            style={{
+              position: 'absolute', left: `${dropPct}%`, top: -4,
+              bottom: -4, width: 2, background: 'var(--color-aurora-green)',
+              transform: 'translateX(-50%)', zIndex: 25, pointerEvents: 'none',
+              boxShadow: '0 0 8px rgba(42,245,152,0.6)',
+            }}
+          />
         )}
 
         <div className="timeline-now" style={{ left: `${nowPct}%` }} />

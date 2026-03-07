@@ -38,6 +38,8 @@ export async function getSchedule(): Promise<ScheduleData> {
 export async function saveSchedule(data: {
   weekday: Period[];
   weekend: Period[];
+  ring_enabled?: boolean;
+  ring_mapping?: { disarmed: string; home: string; away: string };
 }): Promise<{ ok: boolean }> {
   const res = await fetch('/api/schedule', {
     method: 'POST',

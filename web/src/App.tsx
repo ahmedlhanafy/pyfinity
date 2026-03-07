@@ -98,8 +98,10 @@ export default function App() {
             unit={unit}
             theme={theme}
             isConnected={isConnected}
+            scheduleData={scheduleData}
             onUnitChange={handleUnitChange}
             onThemeChange={handleThemeChange}
+            onScheduleChange={setScheduleData}
           />
         </div>
       ) : (

@@ -1,21 +1,47 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { Unit, Theme, RingStatus } from '../types';
-import { getSettings, saveSettings, getRingStatus } from '../api';
+import type { Unit, Theme, RingStatus, ScheduleData, RingMapping } from '../types';
+import { getSettings, saveSettings, getRingStatus, saveSchedule as apiSaveSchedule } from '../api';
+import { PERIOD_COLORS } from '../utils';
+
+const SLOT_OPTIONS = [
+  { name: 'Wake', key: 'wake' },
+  { name: 'Home', key: 'home' },
+  { name: 'Away', key: 'away' },
+  { name: 'Sleep', key: 'sleep' },
+];
+
+const RING_MODES: { key: keyof RingMapping; label: string }[] = [
+  { key: 'disarmed', label: 'Disarmed' },
+  { key: 'home', label: 'Home' },
+  { key: 'away', label: 'Away' },
+];
+
+const DEFAULT_RING_MAPPING: RingMapping = {
+  disarmed: 'home',
+  home: 'home',
+  away: 'away',
+};
 
 interface SettingsViewProps {
   unit: Unit;
   theme: Theme;
   isConnected: boolean;
+  scheduleData: ScheduleData | null;
   onUnitChange: (unit: Unit) => void;
   onThemeChange: (theme: Theme) => void;
+  onScheduleChange: (data: ScheduleData) => void;
 }
 
 export default function SettingsView({
-  unit, theme, isConnected, onUnitChange, onThemeChange,
+  unit, theme, isConnected, scheduleData, onUnitChange, onThemeChange, onScheduleChange,
 }: SettingsViewProps) {
   const [costPerKwh, setCostPerKwh] = useState(0.12);
   const [ringStatus, setRingStatus] = useState<RingStatus>({ mode: null, connected: false });
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  const ringSaveTimer = useRef<ReturnType<typeof setTimeout>>(null);
+
+  const ringEnabled = scheduleData?.ring_enabled ?? false;
+  const ringMapping = scheduleData?.ring_mapping ?? DEFAULT_RING_MAPPING;
 
   useEffect(() => {
     getSettings().then(s => {
@@ -44,6 +70,31 @@ export default function SettingsView({
       }, 1000);
     }
   }, []);
+
+  const saveRingFields = useCallback((updated: ScheduleData) => {
+    if (ringSaveTimer.current) clearTimeout(ringSaveTimer.current);
+    ringSaveTimer.current = setTimeout(() => {
+      apiSaveSchedule({
+        weekday: updated.weekday, weekend: updated.weekend,
+        ring_enabled: updated.ring_enabled, ring_mapping: updated.ring_mapping,
+      }).catch(() => {});
+    }, 1000);
+  }, []);
+
+  const handleRingToggle = useCallback(() => {
+    if (!scheduleData) return;
+    const updated = { ...scheduleData, ring_enabled: !ringEnabled };
+    onScheduleChange(updated);
+    saveRingFields(updated);
+  }, [scheduleData, ringEnabled, onScheduleChange, saveRingFields]);
+
+  const handleRingMappingChange = useCallback((ringMode: keyof RingMapping, slot: string) => {
+    if (!scheduleData) return;
+    const newMapping = { ...ringMapping, [ringMode]: slot };
+    const updated = { ...scheduleData, ring_mapping: newMapping };
+    onScheduleChange(updated);
+    saveRingFields(updated);
+  }, [scheduleData, ringMapping, onScheduleChange, saveRingFields]);
 
   return (
     <div className="settings-view">
@@ -92,6 +143,50 @@ export default function SettingsView({
             onChange={e => handleCostChange(e.target.value)}
           />
         </div>
+      </div>
+
+      {/* Ring Integration */}
+      <div className="settings-section">
+        <div className="ring-integration-header">
+          <span className="label" style={{ marginBottom: 0 }}>Ring Integration</span>
+          <button
+            className={`toggle-switch small${ringEnabled ? ' on' : ''}`}
+            onClick={handleRingToggle}
+            style={{ marginLeft: 'auto' }}
+          >
+            <span className="toggle-thumb" />
+          </button>
+        </div>
+        {ringEnabled && (
+          <div className="ring-mapping-list" style={{ marginTop: 8 }}>
+            {RING_MODES.map(rm => {
+              const mappedSlot = ringMapping[rm.key];
+              const dotColor = PERIOD_COLORS[mappedSlot] ?? '#888';
+              return (
+                <div key={rm.key} className="ring-mapping-row">
+                  <span className="ring-mapping-label">
+                    {rm.label}
+                    {ringStatus.mode === rm.key && (
+                      <span className="ring-active-dot" />
+                    )}
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 3, background: dotColor }} />
+                    <select
+                      className="ring-mapping-select"
+                      value={mappedSlot}
+                      onChange={(e) => handleRingMappingChange(rm.key, e.target.value)}
+                    >
+                      {SLOT_OPTIONS.map(s => (
+                        <option key={s.key} value={s.key}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="settings-section">

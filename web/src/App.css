@@ -195,6 +195,22 @@ body {
 }
 .mode-pill:hover { color: var(--text-primary); }
 .mode-pill.active { background: var(--color-surface-active); color: var(--text-primary); }
+.schedule-toggle-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 4px; margin-bottom: 16px;
+}
+.toggle-switch {
+    width: 44px; height: 26px; border-radius: 13px; padding: 2px;
+    background: rgba(255,255,255,0.12); border: none; cursor: pointer;
+    position: relative; transition: background 0.25s;
+}
+.toggle-switch.on { background: var(--color-aurora-green); }
+.toggle-thumb {
+    display: block; width: 22px; height: 22px; border-radius: 50%;
+    background: #fff; transition: transform 0.25s;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+.toggle-switch.on .toggle-thumb { transform: translateX(18px); }
 .mode-content { flex: 1; min-height: 0; overflow-y: auto; }
 .mode-manual-info { display: flex; align-items: flex-start; padding-top: 24px; }
 .mode-info-card {
@@ -372,6 +388,55 @@ body {
 .sched-next { font-size: 12px; color: var(--text-secondary); padding: 12px 16px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.04); }
 .sched-next strong { color: var(--text-primary); font-weight: 500; }
 
+.slot-palette { display: flex; flex-direction: column; gap: 4px; }
+.slot-palette-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; background: var(--color-surface);
+    border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);
+    cursor: grab; transition: all 0.2s; user-select: none;
+}
+.slot-palette-item:hover { border-color: rgba(255,255,255,0.12); background: var(--color-surface-active); }
+.slot-palette-item:active { cursor: grabbing; }
+.slot-palette-add {
+    margin-left: auto; width: 22px; height: 22px; border-radius: 50%;
+    background: rgba(255,255,255,0.08); color: var(--text-secondary);
+    font-size: 15px; font-weight: 600; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.15s; flex-shrink: 0;
+}
+.slot-palette-add:hover { background: var(--color-aurora-green); color: #000; }
+.timeline-bar.drag-over { outline: 2px dashed var(--color-aurora-green); outline-offset: 4px; }
+.toggle-switch.small { width: 36px; height: 22px; border-radius: 11px; }
+.toggle-switch.small .toggle-thumb { width: 18px; height: 18px; }
+.toggle-switch.small.on .toggle-thumb { transform: translateX(14px); }
+.ring-integration {
+    margin-top: 12px; padding: 12px 14px;
+    background: var(--color-surface); border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.05);
+}
+.ring-integration-header {
+    display: flex; align-items: center; gap: 6px;
+}
+.ring-mapping-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.ring-mapping-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 0;
+}
+.ring-mapping-label {
+    font-size: 12px; color: var(--text-secondary);
+    display: flex; align-items: center; gap: 6px;
+}
+.ring-active-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--color-aurora-green); display: inline-block;
+}
+.ring-mapping-select {
+    background: var(--color-surface-active); color: var(--text-primary);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+    padding: 4px 8px; font-size: 12px; font-family: inherit;
+    cursor: pointer; outline: none;
+}
+.ring-mapping-select:focus { border-color: rgba(255,255,255,0.2); }
 .sched-editor { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; }
 .sched-period-card {
     padding: 14px; background: var(--color-surface);

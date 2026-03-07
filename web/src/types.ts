@@ -27,11 +27,19 @@ export interface Period {
   cool: number;
 }
 
+export interface RingMapping {
+  disarmed: string;
+  home: string;
+  away: string;
+}
+
 export interface ScheduleData {
   mode: ControlMode;
   weekday: Period[];
   weekend: Period[];
   ring: RingConfig;
+  ring_enabled?: boolean;
+  ring_mapping?: RingMapping;
 }
 
 export interface RingModeTemps {

@@ -9,7 +9,7 @@ interface MobileTabBarProps {
 
 const TABS: { key: MobileTab; label: string; icon: typeof House }[] = [
   { key: 'home', label: 'Home', icon: House },
-  { key: 'mode', label: 'Mode', icon: Sliders },
+  { key: 'mode', label: 'Schedule', icon: Sliders },
   { key: 'energy', label: 'Energy', icon: Lightning },
   { key: 'settings', label: 'Settings', icon: GearSix },
 ];

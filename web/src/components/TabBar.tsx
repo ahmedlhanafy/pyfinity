@@ -7,7 +7,7 @@ interface TabBarProps {
 
 const TABS: { key: ActiveTab; label: string }[] = [
   { key: 'home', label: 'Home' },
-  { key: 'mode', label: 'Mode' },
+  { key: 'mode', label: 'Schedule' },
   { key: 'energy', label: 'Energy' },
 ];
 

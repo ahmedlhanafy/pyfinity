@@ -1,10 +1,17 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { StatusResponse, ScheduleData, Period, Unit, HvacMode } from '../types';
-import { ft, timeToMin } from '../utils';
+import { ft, timeToMin, minToTime, PERIOD_COLORS } from '../utils';
 import { saveSchedule as apiSaveSchedule } from '../api';
 import Timeline from './Timeline';
 import PeriodCard from './PeriodCard';
 import MiniDial from './MiniDial';
+
+const SLOT_PALETTE = [
+  { name: 'Wake', key: 'wake', heat: 68, cool: 75 },
+  { name: 'Home', key: 'home', heat: 68, cool: 75 },
+  { name: 'Away', key: 'away', heat: 62, cool: 78 },
+  { name: 'Sleep', key: 'sleep', heat: 65, cool: 76 },
+];
 
 interface ScheduleViewProps {
   status: StatusResponse | null;
@@ -27,10 +34,14 @@ export default function ScheduleView({ status, unit, scheduleData, onScheduleCha
   const editingPeriod = periods[editingIdx] || null;
 
   // Auto-save: debounce 1s after any change
-  const autoSave = useCallback(() => {
+  const autoSave = useCallback((data?: ScheduleData) => {
+    const d = data ?? scheduleData;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      apiSaveSchedule({ weekday: scheduleData.weekday, weekend: scheduleData.weekend }).catch(() => {});
+      apiSaveSchedule({
+        weekday: d.weekday, weekend: d.weekend,
+        ring_enabled: d.ring_enabled, ring_mapping: d.ring_mapping,
+      }).catch(() => {});
     }, 1000);
   }, [scheduleData]);
 
@@ -42,11 +53,7 @@ export default function ScheduleView({ status, unit, scheduleData, onScheduleCha
     );
     const updated = { ...scheduleData, [viewDay]: newSlots };
     onScheduleChange(updated);
-    // Auto-save with the updated data
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      apiSaveSchedule({ weekday: updated.weekday, weekend: updated.weekend }).catch(() => {});
-    }, 1000);
+    autoSave(updated);
   }, [scheduleData, viewDay, onScheduleChange]);
 
   const handleDelete = useCallback((idx: number) => {
@@ -88,6 +95,26 @@ export default function ScheduleView({ status, unit, scheduleData, onScheduleCha
       return () => document.removeEventListener('keydown', handler);
     }
   }, [editingIdx]);
+
+  // Quick-add from palette: find a gap to insert at
+  const handlePaletteAdd = useCallback((slotKey: string) => {
+    const starts = periods.map(p => timeToMin(p.start)).sort((a, b) => a - b);
+    // Find the largest gap between existing slots
+    let bestMin = 720; // default: noon
+    let bestGap = 0;
+    for (let i = 0; i < starts.length; i++) {
+      const next = i < starts.length - 1 ? starts[i + 1] : 1440;
+      const gap = next - starts[i];
+      if (gap > bestGap) {
+        bestGap = gap;
+        bestMin = Math.round((starts[i] + next) / 2);
+      }
+    }
+    // Snap to 15 min
+    bestMin = Math.round(bestMin / 15) * 15;
+    bestMin = Math.max(0, Math.min(1425, bestMin));
+    handleAddSlot(minToTime(bestMin), slotKey);
+  }, [periods, handleAddSlot]);
 
   // Click on period card opens the edit modal
   const handleCardClick = useCallback((idx: number) => {
@@ -143,11 +170,40 @@ export default function ScheduleView({ status, unit, scheduleData, onScheduleCha
               </div>
             </div>
           </div>
+
         </div>
 
-        {/* Right: period list */}
+        {/* Right: slot palette + active slots */}
         <div className="sched-right">
-          <span className="label">Slots</span>
+          <span className="label">Drag to Timeline</span>
+          <div className="slot-palette">
+            {SLOT_PALETTE.map((slot) => {
+              const color = PERIOD_COLORS[slot.key] ?? '#888';
+              return (
+                <div
+                  key={slot.key}
+                  className="slot-palette-item"
+                  draggable
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('text/plain', slot.key);
+                    e.dataTransfer.effectAllowed = 'copy';
+                  }}
+                >
+                  <span className="sched-period-dot" style={{ background: color }} />
+                  <span style={{ fontWeight: 500, fontSize: 13 }}>{slot.name}</span>
+                  <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+                    {slot.heat}° / {slot.cool}°
+                  </span>
+                  <span
+                    className="slot-palette-add"
+                    onClick={(e) => { e.stopPropagation(); handlePaletteAdd(slot.key); }}
+                  >+</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <span className="label" style={{ marginTop: 12 }}>Active Slots</span>
           <div className="sched-editor">
             {periods.map((p, i) => (
               <PeriodCard
