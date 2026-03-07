@@ -293,14 +293,16 @@ def scheduler_loop():
                                 heat, cool = mapped_period["heat"], mapped_period["cool"]
                                 print(f"[scheduler] Ring→{mapped_slot} "
                                       f"(heat={heat}, cool={cool})")
-                                try:
-                                    with_device(lambda d: d.set_setpoint(heat, HEAT_SETPOINT_BYTE))
-                                except Exception as e:
-                                    print(f"[scheduler] Heat set failed: {e}")
-                                try:
-                                    with_device(lambda d: d.set_setpoint(cool, COOL_SETPOINT_BYTE))
-                                except Exception as e:
-                                    print(f"[scheduler] Cool set failed: {e}")
+                                def apply_ring(h=heat, c=cool):
+                                    try:
+                                        with_device(lambda d: d.set_setpoint(h, HEAT_SETPOINT_BYTE))
+                                    except Exception as e:
+                                        print(f"[scheduler] Ring heat set failed: {e}")
+                                    try:
+                                        with_device(lambda d: d.set_setpoint(c, COOL_SETPOINT_BYTE))
+                                    except Exception as e:
+                                        print(f"[scheduler] Ring cool set failed: {e}")
+                                threading.Thread(target=apply_ring, daemon=True).start()
                                 _last_applied_period = key
                             ring_override = True
 
@@ -310,14 +312,16 @@ def scheduler_loop():
                         heat, cool = period["heat"], period["cool"]
                         print(f"[scheduler] Period changed to: {period['period']} "
                               f"(heat={heat}, cool={cool})")
-                        try:
-                            with_device(lambda d: d.set_setpoint(heat, HEAT_SETPOINT_BYTE))
-                        except Exception as e:
-                            print(f"[scheduler] Heat set failed: {e}")
-                        try:
-                            with_device(lambda d: d.set_setpoint(cool, COOL_SETPOINT_BYTE))
-                        except Exception as e:
-                            print(f"[scheduler] Cool set failed: {e}")
+                        def apply_period(h=heat, c=cool):
+                            try:
+                                with_device(lambda d: d.set_setpoint(h, HEAT_SETPOINT_BYTE))
+                            except Exception as e:
+                                print(f"[scheduler] Heat set failed: {e}")
+                            try:
+                                with_device(lambda d: d.set_setpoint(c, COOL_SETPOINT_BYTE))
+                            except Exception as e:
+                                print(f"[scheduler] Cool set failed: {e}")
+                        threading.Thread(target=apply_period, daemon=True).start()
                         _last_applied_period = period["period"]
 
             elif mode == "ring":
@@ -342,7 +346,7 @@ def scheduler_loop():
 
         except Exception as e:
             print(f"[scheduler] Error: {e}")
-        time.sleep(60)
+        time.sleep(30)
 
 
 # ── Ring polling thread ──────────────────────────────────────────────

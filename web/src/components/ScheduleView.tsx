@@ -3,8 +3,8 @@ import type { StatusResponse, ScheduleData, Period, Unit, HvacMode } from '../ty
 import { ft, timeToMin, minToTime, PERIOD_COLORS } from '../utils';
 import { saveSchedule as apiSaveSchedule } from '../api';
 import Timeline from './Timeline';
-import PeriodCard from './PeriodCard';
 import MiniDial from './MiniDial';
+import { displayTemp, unitLabel } from '../utils';
 
 const SLOT_PALETTE = [
   { name: 'Wake', key: 'wake', heat: 68, cool: 75 },
@@ -23,7 +23,8 @@ interface ScheduleViewProps {
 export default function ScheduleView({ status, unit, scheduleData, onScheduleChange }: ScheduleViewProps) {
   const [viewDay, setViewDay] = useState<'weekday' | 'weekend'>('weekday');
   const [selectedIdx, setSelectedIdx] = useState(-1);
-  const [editingIdx, setEditingIdx] = useState(-1); // which period has the modal open
+  const [editingIdx, setEditingIdx] = useState(-1); // which timeline period has the modal open
+  const [editingSlotKey, setEditingSlotKey] = useState<string | null>(null); // palette slot editing
   const [miniMode, setMiniMode] = useState<HvacMode>('heat');
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(null);
 
@@ -80,21 +81,38 @@ export default function ScheduleView({ status, unit, scheduleData, onScheduleCha
   }, [scheduleData, viewDay, onScheduleChange, autoSave]);
 
   const handleMiniTempChange = useCallback((temp: number) => {
-    if (editingPeriod) {
+    if (editingSlotKey) {
+      // Update ALL instances of this slot type across both weekday and weekend
+      const updateSlots = (slots: Period[]) =>
+        slots.map(p => p.period === editingSlotKey ? { ...p, [miniMode]: temp } : p);
+      const updated = {
+        ...scheduleData,
+        weekday: updateSlots(scheduleData.weekday),
+        weekend: updateSlots(scheduleData.weekend),
+      };
+      onScheduleChange(updated);
+      autoSave(updated);
+    } else if (editingPeriod) {
       updatePeriod(editingIdx, { [miniMode]: temp });
     }
-  }, [editingIdx, editingPeriod, miniMode, updatePeriod]);
+  }, [editingIdx, editingPeriod, editingSlotKey, miniMode, updatePeriod, scheduleData, onScheduleChange, autoSave]);
 
   // Close modal on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setEditingIdx(-1);
+      if (e.key === 'Escape') { setEditingIdx(-1); setEditingSlotKey(null); }
     };
-    if (editingIdx >= 0) {
+    if (editingIdx >= 0 || editingSlotKey) {
       document.addEventListener('keydown', handler);
       return () => document.removeEventListener('keydown', handler);
     }
-  }, [editingIdx]);
+  }, [editingIdx, editingSlotKey]);
+
+  const handlePaletteClick = useCallback((slotKey: string) => {
+    setEditingSlotKey(slotKey);
+    setEditingIdx(-1);
+    setMiniMode('heat');
+  }, []);
 
   // Quick-add from palette: find a gap to insert at
   const handlePaletteAdd = useCallback((slotKey: string) => {
@@ -116,12 +134,6 @@ export default function ScheduleView({ status, unit, scheduleData, onScheduleCha
     handleAddSlot(minToTime(bestMin), slotKey);
   }, [periods, handleAddSlot]);
 
-  // Click on period card opens the edit modal
-  const handleCardClick = useCallback((idx: number) => {
-    setSelectedIdx(idx);
-    setEditingIdx(idx);
-    setMiniMode('heat');
-  }, []);
 
   return (
     <div className="schedule-view" onClick={() => setSelectedIdx(-1)}>
@@ -173,17 +185,22 @@ export default function ScheduleView({ status, unit, scheduleData, onScheduleCha
 
         </div>
 
-        {/* Right: slot palette + active slots */}
+        {/* Right: slot palette */}
         <div className="sched-right">
-          <span className="label">Drag to Timeline</span>
+          <span className="label">Slots</span>
           <div className="slot-palette">
             {SLOT_PALETTE.map((slot) => {
               const color = PERIOD_COLORS[slot.key] ?? '#888';
+              // Get live temps from the first instance in current day's schedule
+              const liveSlot = periods.find(p => p.period === slot.key);
+              const heat = liveSlot?.heat ?? slot.heat;
+              const cool = liveSlot?.cool ?? slot.cool;
               return (
                 <div
                   key={slot.key}
                   className="slot-palette-item"
                   draggable
+                  onClick={() => handlePaletteClick(slot.key)}
                   onDragStart={(e) => {
                     e.dataTransfer.setData('text/plain', slot.key);
                     e.dataTransfer.effectAllowed = 'copy';
@@ -192,7 +209,7 @@ export default function ScheduleView({ status, unit, scheduleData, onScheduleCha
                   <span className="sched-period-dot" style={{ background: color }} />
                   <span style={{ fontWeight: 500, fontSize: 13 }}>{slot.name}</span>
                   <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
-                    {slot.heat}° / {slot.cool}°
+                    {displayTemp(heat, unit)}{unitLabel(unit)} / {displayTemp(cool, unit)}{unitLabel(unit)}
                   </span>
                   <span
                     className="slot-palette-add"
@@ -202,71 +219,68 @@ export default function ScheduleView({ status, unit, scheduleData, onScheduleCha
               );
             })}
           </div>
-
-          <span className="label" style={{ marginTop: 12 }}>Active Slots</span>
-          <div className="sched-editor">
-            {periods.map((p, i) => (
-              <PeriodCard
-                key={`${p.period}-${p.start}`}
-                period={p}
-                isSelected={i === selectedIdx}
-                unit={unit}
-                onClick={() => handleCardClick(i)}
-              />
-            ))}
-          </div>
         </div>
       </div>
 
       {/* Edit modal — blur backdrop, centered mini dial */}
-      {editingIdx >= 0 && editingPeriod && (
-        <div
-          style={{
-            position: 'fixed', inset: 0,
-            background: 'rgba(0,0,0,0.6)',
-            backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
-            zIndex: 100,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
-          onClick={() => setEditingIdx(-1)}
-        >
+      {(editingIdx >= 0 && editingPeriod || editingSlotKey) && (() => {
+        // Determine what we're editing
+        const slotDef = editingSlotKey ? SLOT_PALETTE.find(s => s.key === editingSlotKey) : null;
+        const liveSlot = editingSlotKey ? periods.find(p => p.period === editingSlotKey) : null;
+        const modalLabel = editingSlotKey
+          ? (slotDef?.name ?? editingSlotKey)
+          : `${editingPeriod!.period.charAt(0).toUpperCase() + editingPeriod!.period.slice(1)} — ${editingPeriod!.start}`;
+        const modalTemp = editingSlotKey
+          ? (liveSlot?.[miniMode] ?? (slotDef?.[miniMode] ?? 68))
+          : editingPeriod![miniMode];
+
+        return (
           <div
             style={{
-              background: 'rgba(17,17,17,0.95)',
-              border: '1px solid rgba(255,255,255,0.1)',
-              borderRadius: 24, padding: '28px 32px',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
-              minWidth: 260,
-              boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
+              position: 'fixed', inset: 0,
+              background: 'rgba(0,0,0,0.6)',
+              backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)',
+              zIndex: 100,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
-            onClick={(e) => e.stopPropagation()}
+            onClick={() => { setEditingIdx(-1); setEditingSlotKey(null); }}
           >
-            <span className="label" style={{ marginBottom: 0 }}>
-              {editingPeriod.period.charAt(0).toUpperCase() + editingPeriod.period.slice(1)} — {editingPeriod.start}
-            </span>
+            <div
+              style={{
+                background: 'rgba(17,17,17,0.95)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 24, padding: '28px 32px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
+                minWidth: 260,
+                boxShadow: '0 24px 48px rgba(0,0,0,0.5)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="label" style={{ marginBottom: 0 }}>{modalLabel}</span>
 
-            <div className="mini-dial-tabs">
-              <button
-                className={`mini-dial-tab${miniMode === 'heat' ? ' active' : ''}`}
-                onClick={() => setMiniMode('heat')}
-              >Heat</button>
-              <button
-                className={`mini-dial-tab${miniMode === 'cool' ? ' active' : ''}`}
-                onClick={() => setMiniMode('cool')}
-              >Cool</button>
+              <div className="mini-dial-tabs">
+                <button
+                  className={`mini-dial-tab${miniMode === 'heat' ? ' active' : ''}`}
+                  onClick={() => setMiniMode('heat')}
+                >Heat</button>
+                <button
+                  className={`mini-dial-tab${miniMode === 'cool' ? ' active' : ''}`}
+                  onClick={() => setMiniMode('cool')}
+                >Cool</button>
+              </div>
+
+              <MiniDial
+                temp={modalTemp}
+                mode={miniMode}
+                unit={unit}
+                min={miniMode === 'heat' ? 55 : 60}
+                max={miniMode === 'heat' ? 85 : 90}
+                onTempChange={handleMiniTempChange}
+              />
             </div>
-
-            <MiniDial
-              temp={editingPeriod[miniMode]}
-              mode={miniMode}
-              unit={unit}
-              min={miniMode === 'heat' ? 55 : 60}
-              max={miniMode === 'heat' ? 85 : 90}
-              onTempChange={handleMiniTempChange}
-            />
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
