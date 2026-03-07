@@ -274,20 +274,22 @@ def scheduler_loop():
             if mode == "schedule":
                 # Check if Ring integration overrides schedule
                 ring_override = False
-                if sched.get("ring_enabled"):
+                ring_en = sched.get("ring_enabled")
+                if ring_en:
                     with _ring_lock:
                         ring_mode = _ring_status.get("mode")
-                    if ring_mode:
-                        mapping = sched.get("ring_mapping", {})
-                        mapped_slot = mapping.get(ring_mode)
-                        if mapped_slot and mapped_slot != "none":
-                            # Find the mapped slot's temps from current schedule
-                            day_key = "weekend" if datetime.now().weekday() >= 5 else "weekday"
-                            slots = sched.get(day_key, [])
-                            mapped_period = next((s for s in slots if s["period"] == mapped_slot), None)
-                            if mapped_period:
-                                key = f"ring:{ring_mode}:{mapped_slot}"
-                                if key != _last_applied_period:
+                    mapping = sched.get("ring_mapping", {})
+                    mapped_slot = mapping.get(ring_mode) if ring_mode else None
+                    print(f"[scheduler] Ring check: enabled={ring_en}, ring_mode={ring_mode}, "
+                          f"mapped_slot={mapped_slot}, last={_last_applied_period}")
+                    if ring_mode and mapped_slot and mapped_slot != "none":
+                        # Find the mapped slot's temps from current schedule
+                        day_key = "weekend" if datetime.now().weekday() >= 5 else "weekday"
+                        slots = sched.get(day_key, [])
+                        mapped_period = next((s for s in slots if s["period"] == mapped_slot), None)
+                        if mapped_period:
+                            key = f"ring:{ring_mode}:{mapped_slot}"
+                            if key != _last_applied_period:
                                     heat, cool = mapped_period["heat"], mapped_period["cool"]
                                     print(f"[scheduler] Ring→{mapped_slot} "
                                           f"(heat={heat}, cool={cool})")
