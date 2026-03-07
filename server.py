@@ -290,19 +290,19 @@ def scheduler_loop():
                         if mapped_period:
                             key = f"ring:{ring_mode}:{mapped_slot}"
                             if key != _last_applied_period:
-                                    heat, cool = mapped_period["heat"], mapped_period["cool"]
-                                    print(f"[scheduler] Ring→{mapped_slot} "
-                                          f"(heat={heat}, cool={cool})")
-                                    try:
-                                        with_device(lambda d: d.set_setpoint(heat, HEAT_SETPOINT_BYTE))
-                                    except Exception as e:
-                                        print(f"[scheduler] Heat set failed: {e}")
-                                    try:
-                                        with_device(lambda d: d.set_setpoint(cool, COOL_SETPOINT_BYTE))
-                                    except Exception as e:
-                                        print(f"[scheduler] Cool set failed: {e}")
-                                    _last_applied_period = key
-                                ring_override = True
+                                heat, cool = mapped_period["heat"], mapped_period["cool"]
+                                print(f"[scheduler] Ring→{mapped_slot} "
+                                      f"(heat={heat}, cool={cool})")
+                                try:
+                                    with_device(lambda d: d.set_setpoint(heat, HEAT_SETPOINT_BYTE))
+                                except Exception as e:
+                                    print(f"[scheduler] Heat set failed: {e}")
+                                try:
+                                    with_device(lambda d: d.set_setpoint(cool, COOL_SETPOINT_BYTE))
+                                except Exception as e:
+                                    print(f"[scheduler] Cool set failed: {e}")
+                                _last_applied_period = key
+                            ring_override = True
 
                 if not ring_override:
                     period = get_active_period()
