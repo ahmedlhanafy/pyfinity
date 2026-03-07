@@ -114,6 +114,7 @@ export default function App() {
                 unit={unit}
                 mode={mode}
                 controlMode={controlMode}
+                scheduleData={scheduleData}
                 onModeChange={setMode}
               />
             )}

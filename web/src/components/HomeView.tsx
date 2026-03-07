@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import type { StatusResponse, Unit, HvacMode, ControlMode } from '../types';
+import type { StatusResponse, ScheduleData, Unit, HvacMode, ControlMode } from '../types';
 import { ft, displayTemp, unitLabel } from '../utils';
 import { setTemp } from '../api';
 import TemperatureDial from './TemperatureDial';
@@ -9,6 +9,7 @@ interface HomeViewProps {
   unit: Unit;
   mode: HvacMode;
   controlMode: ControlMode;
+  scheduleData: ScheduleData | null;
   onModeChange: (mode: HvacMode) => void;
 }
 
@@ -19,19 +20,29 @@ const BOUNDS = {
 
 const DEBOUNCE_MS = 2000;
 
-function modeLabel(controlMode: ControlMode, status: StatusResponse | null): string {
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+function modeLabel(controlMode: ControlMode, status: StatusResponse | null, sched: ScheduleData | null): string {
   if (controlMode === 'schedule') {
+    // Check if Ring integration is overriding
+    if (sched?.ring_enabled && status?.ring_mode) {
+      const mapping = sched.ring_mapping ?? {};
+      const mapped = mapping[status.ring_mode as keyof typeof mapping];
+      if (mapped && mapped !== 'none') {
+        return `Ring ${cap(status.ring_mode)} → ${cap(mapped)}`;
+      }
+    }
     const period = status?.active_period;
-    return period ? `Schedule \u2014 ${period.charAt(0).toUpperCase() + period.slice(1)}` : 'Schedule';
+    return period ? `Schedule — ${cap(period)}` : 'Schedule';
   }
   if (controlMode === 'ring') {
     const ringMode = status?.ring_mode;
-    return ringMode ? `Ring \u2014 ${ringMode.charAt(0).toUpperCase() + ringMode.slice(1)}` : 'Ring';
+    return ringMode ? `Ring — ${cap(ringMode)}` : 'Ring';
   }
   return 'Manual';
 }
 
-export default function HomeView({ status, unit, mode, controlMode, onModeChange }: HomeViewProps) {
+export default function HomeView({ status, unit, mode, controlMode, scheduleData, onModeChange }: HomeViewProps) {
   const [dialTemp, setDialTemp] = useState<number | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
@@ -126,7 +137,7 @@ export default function HomeView({ status, unit, mode, controlMode, onModeChange
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         />
-        <span className="mode-label">{modeLabel(controlMode, status)}</span>
+        <span className="mode-label">{modeLabel(controlMode, status, scheduleData)}</span>
         <div className="pill-control">
           <div
             className={`pill-segment${mode === 'cool' ? ' active' : ''}`}
@@ -152,7 +163,7 @@ export default function HomeView({ status, unit, mode, controlMode, onModeChange
             </div>
             <div className="info-item">
               <span className="info-label">Control</span>
-              <span className="info-val">{modeLabel(controlMode, status)}</span>
+              <span className="info-val">{modeLabel(controlMode, status, scheduleData)}</span>
             </div>
             <div className="info-item">
               <span className="info-label">Model</span>
