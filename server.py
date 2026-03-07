@@ -280,7 +280,7 @@ def scheduler_loop():
                     if ring_mode:
                         mapping = sched.get("ring_mapping", {})
                         mapped_slot = mapping.get(ring_mode)
-                        if mapped_slot:
+                        if mapped_slot and mapped_slot != "none":
                             # Find the mapped slot's temps from current schedule
                             day_key = "weekend" if datetime.now().weekday() >= 5 else "weekday"
                             slots = sched.get(day_key, [])

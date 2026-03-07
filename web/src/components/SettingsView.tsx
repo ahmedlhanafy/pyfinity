@@ -161,7 +161,7 @@ export default function SettingsView({
           <div className="ring-mapping-list" style={{ marginTop: 8 }}>
             {RING_MODES.map(rm => {
               const mappedSlot = ringMapping[rm.key];
-              const dotColor = PERIOD_COLORS[mappedSlot] ?? '#888';
+              const dotColor = mappedSlot === 'none' ? 'rgba(255,255,255,0.15)' : (PERIOD_COLORS[mappedSlot] ?? '#888');
               return (
                 <div key={rm.key} className="ring-mapping-row">
                   <span className="ring-mapping-label">
@@ -177,6 +177,7 @@ export default function SettingsView({
                       value={mappedSlot}
                       onChange={(e) => handleRingMappingChange(rm.key, e.target.value)}
                     >
+                      <option value="none">None</option>
                       {SLOT_OPTIONS.map(s => (
                         <option key={s.key} value={s.key}>{s.name}</option>
                       ))}
