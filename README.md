@@ -5,17 +5,29 @@
 <h1 align="center">pyfinity</h1>
 
 <p align="center">
-  Remote control for <b>non-WiFi Carrier Infinity Touch thermostats</b> via the RS-485 ABCD bus.
-</p>
-
-<p align="center">
-  The first known solution for controlling a Carrier Infinity Touch thermostat (SYSTXCCITN01) without WiFi.<br/>
-  No cloud, no proprietary hardware — just a $15 USB adapter and Python.
+  Remote control for <b>non-WiFi Carrier Infinity Touch thermostats</b> (SYSTXCCITN01) via the RS-485 ABCD bus.<br/>
+  A $15 USB adapter and Python. No cloud, no proprietary hardware.
 </p>
 
 ---
 
-## What it does
+## Web UI
+
+Pyfinity has a web UI (Python server + React frontend) with temperature control, a scheduler for heating/cooling profiles, and energy tracking.
+
+<p align="center">
+  <img src="docs/home-tab.png" width="700" alt="Home Tab - Temperature Control" />
+</p>
+
+<p align="center">
+  <img src="docs/schedule-tab.png" width="700" alt="Schedule Tab - Automated Scheduling" />
+</p>
+
+---
+
+## CLI
+
+The CLI works on its own if you don't need the web server:
 
 ```
 $ ./carrier_ctl.py status
@@ -79,27 +91,23 @@ You can tap into the A/B terminals at the thermostat wall plate — no need to a
 
 ## How it works
 
-The Carrier Infinity system uses a proprietary RS-485 bus (called ABCD) at 38400 baud. The thermostat, air handler, and heat pump all communicate on this bus.
+Carrier Infinity systems use a proprietary RS-485 bus (called ABCD) running at 38400 baud. The thermostat, air handler, and heat pump all talk on this bus.
 
-This tool impersonates a SAM (System Access Module) at address `0x9201` and reads/writes thermostat table `00400a` — the Zone 1 comfort profile. The active heat setpoint lives at byte 25, cool setpoint at byte 26.
+We impersonate a SAM (System Access Module) at address `0x9201` and read/write thermostat table `00400a`, the Zone 1 comfort profile. Heat setpoint is byte 25, cool setpoint is byte 26.
 
-Writes require persistence: the tool writes the new value 6 times at 5-second intervals to reliably land in the thermostat's internal processing window.
+Single writes don't stick -- the thermostat has an internal processing cycle that overwrites them. So we write the new value 6 times at 5-second intervals until it lands in the right window. That's why set commands take about 30 seconds.
 
 ## Compatibility
 
-Tested on:
-- **Thermostat:** Carrier Infinity Touch SYSTXCCITN01-A (non-WiFi)
-- **Air Handler:** Variable Speed Fan Coil (CESR131329-17)
-- **Heat Pump:** Variable Speed Compressor (CESR131438-09)
-- **OS:** macOS, should work on Linux/Raspberry Pi
-
-## Limitations
-
-- Set commands take ~30 seconds due to the persistence write method
+Tested with:
+- Carrier Infinity Touch SYSTXCCITN01-A (non-WiFi thermostat)
+- Variable Speed Fan Coil CESR131329-17 (air handler)
+- Variable Speed Compressor CESR131438-09 (heat pump)
+- macOS and Linux/Raspberry Pi
 
 ## Disclaimer
 
-Use at your own risk. This tool communicates directly with your HVAC system via a reverse-engineered protocol. The authors are not responsible for any damage to your equipment.
+This talks directly to your HVAC system over a reverse-engineered protocol. Use at your own risk.
 
 ## License
 
