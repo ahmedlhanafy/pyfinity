@@ -64,7 +64,13 @@ DEFAULT_SETTINGS = {
     "unit": "F",
     "theme": "dark",
     "cost_per_kwh": 0.12,
+    "city": "",
+    "openweather_api_key": "",
 }
+
+# --- Weather state ---
+_weather_data = {"temp": None, "updated": None}
+_weather_lock = threading.Lock()
 
 
 # ── Schedule management ──────────────────────────────────────────────
@@ -351,6 +357,45 @@ def scheduler_loop():
 
 # ── Ring polling thread ──────────────────────────────────────────────
 
+def weather_polling_loop():
+    """Background thread: fetches outdoor temp from OpenWeatherMap every 10 min."""
+    global _weather_data
+    import urllib.request
+    import urllib.error
+
+    while True:
+        try:
+            settings = load_settings()
+            city = settings.get("city", "").strip()
+            api_key = settings.get("openweather_api_key", "").strip()
+
+            if city and api_key:
+                if _mock_mode:
+                    with _weather_lock:
+                        _weather_data = {"temp": 72.5, "updated": datetime.now().isoformat()}
+                else:
+                    url = (
+                        f"https://api.openweathermap.org/data/2.5/weather"
+                        f"?q={urllib.request.quote(city)}&appid={api_key}&units=imperial"
+                    )
+                    req = urllib.request.Request(url, headers={"User-Agent": "Pyfinity/1.0"})
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        data = json.loads(resp.read())
+                        temp = data.get("main", {}).get("temp")
+                        if temp is not None:
+                            with _weather_lock:
+                                _weather_data = {"temp": round(temp, 1), "updated": datetime.now().isoformat()}
+                            print(f"[weather] Updated: {temp}°F")
+            else:
+                with _weather_lock:
+                    _weather_data = {"temp": None, "updated": None}
+
+        except Exception as e:
+            print(f"[weather] Error: {e}")
+
+        time.sleep(600)  # 10 minutes
+
+
 def ring_polling_loop():
     """Background thread: polls Ring alarm mode via Ring API."""
     global _ring_status
@@ -480,9 +525,16 @@ def api_status():
             with _ring_lock:
                 ring_mode = _ring_status.get("mode")
 
+            # Use weather API temp if available, else bus temp
+            with _weather_lock:
+                weather_temp = _weather_data.get("temp")
+            outdoor = weather_temp if weather_temp is not None else status["outdoor_temp"]
+            weather_source = "api" if weather_temp is not None else "bus"
+
             return {
                 "indoor_temp": status["indoor_temp"],
-                "outdoor_temp": status["outdoor_temp"],
+                "outdoor_temp": outdoor,
+                "weather_source": weather_source,
                 "heat_setpoint": status["heat_setpoint"],
                 "cool_setpoint": status["cool_setpoint"],
                 "energy_yesterday": yesterday,
@@ -821,6 +873,7 @@ if __name__ == "__main__":
     threading.Thread(target=scheduler_loop, daemon=True).start()
     threading.Thread(target=energy_collector_loop, daemon=True).start()
     threading.Thread(target=ring_polling_loop, daemon=True).start()
+    threading.Thread(target=weather_polling_loop, daemon=True).start()
 
     print("Starting Carrier Infinity control panel...")
     print("Open http://localhost:5050")

@@ -36,8 +36,11 @@ export default function SettingsView({
   unit, theme, isConnected, scheduleData, onUnitChange, onThemeChange, onScheduleChange,
 }: SettingsViewProps) {
   const [costPerKwh, setCostPerKwh] = useState(0.12);
+  const [city, setCity] = useState('');
+  const [apiKey, setApiKey] = useState('');
   const [ringStatus, setRingStatus] = useState<RingStatus>({ mode: null, connected: false });
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(null);
+  const weatherSaveTimer = useRef<ReturnType<typeof setTimeout>>(null);
   const ringSaveTimer = useRef<ReturnType<typeof setTimeout>>(null);
 
   const ringEnabled = scheduleData?.ring_enabled ?? false;
@@ -46,6 +49,8 @@ export default function SettingsView({
   useEffect(() => {
     getSettings().then(s => {
       setCostPerKwh(s.cost_per_kwh);
+      setCity(s.city ?? '');
+      setApiKey(s.openweather_api_key ?? '');
     }).catch(() => {});
     getRingStatus().then(setRingStatus).catch(() => {});
   }, []);
@@ -69,6 +74,15 @@ export default function SettingsView({
         saveSettings({ cost_per_kwh: num }).catch(() => {});
       }, 1000);
     }
+  }, []);
+
+  const handleWeatherFieldChange = useCallback((field: 'city' | 'openweather_api_key', value: string) => {
+    if (field === 'city') setCity(value);
+    else setApiKey(value);
+    if (weatherSaveTimer.current) clearTimeout(weatherSaveTimer.current);
+    weatherSaveTimer.current = setTimeout(() => {
+      saveSettings({ [field]: value }).catch(() => {});
+    }, 1500);
   }, []);
 
   const saveRingFields = useCallback((updated: ScheduleData) => {
@@ -145,6 +159,39 @@ export default function SettingsView({
         </div>
       </div>
 
+      <div className="settings-section">
+        <span className="label">Weather</span>
+        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: 13, minWidth: 50 }}>City</span>
+            <input
+              type="text"
+              className="settings-input"
+              placeholder="Austin, TX"
+              value={city}
+              onChange={e => handleWeatherFieldChange('city', e.target.value)}
+              style={{ flex: 1 }}
+            />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: 13, minWidth: 50 }}>API Key</span>
+            <input
+              type="password"
+              className="settings-input"
+              placeholder="OpenWeatherMap API key"
+              value={apiKey}
+              onChange={e => handleWeatherFieldChange('openweather_api_key', e.target.value)}
+              style={{ flex: 1 }}
+            />
+          </div>
+          {city && apiKey && (
+            <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+              Outdoor temp from OpenWeatherMap (updates every 10 min)
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Ring Integration */}
       <div className="settings-section">
         <div className="ring-integration-header">
@@ -198,6 +245,13 @@ export default function SettingsView({
             <span className="info-val" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span className={`status-dot ${isConnected ? 'ok' : 'err'}`} />
               {isConnected ? 'Connected' : 'Disconnected'}
+            </span>
+          </div>
+          <div className="info-item">
+            <span className="info-label">Weather</span>
+            <span className="info-val" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className={`status-dot ${city && apiKey ? 'ok' : 'err'}`} />
+              {city && apiKey ? `API (${city})` : 'Not configured'}
             </span>
           </div>
           <div className="info-item">

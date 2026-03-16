@@ -7,6 +7,7 @@ export type Theme = 'dark' | 'light';
 export interface StatusResponse {
   indoor_temp: number | null;
   outdoor_temp: number | null;
+  weather_source?: 'api' | 'bus';
   heat_setpoint: number | null;
   cool_setpoint: number | null;
   energy_yesterday: number | null;
@@ -76,4 +77,6 @@ export interface Settings {
   unit: Unit;
   theme: Theme;
   cost_per_kwh: number;
+  city?: string;
+  openweather_api_key?: string;
 }
