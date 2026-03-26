@@ -30,6 +30,7 @@ Read table 00400a → replace current setpoint bytes → write back. Repeat 6 ro
 - App dir: `/opt/pyfinity` (owned by root)
 - Repo: `~/pyfinity` (user clone for git pull)
 - Deploy: `cd ~/pyfinity && git pull && bash setup_pi.sh`
+- Integration setup: `python3 setup.py` (Ring, Weather — interactive menu)
 - setup_pi.sh copies files to /opt/pyfinity, preserves config files (settings.json, energy_history.json, etc.)
 - Service: `pyfinity.service` (systemd), runs as root on port 5050
 

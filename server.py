@@ -397,10 +397,9 @@ def weather_polling_loop():
 
 
 def ring_polling_loop():
-    """Background thread: polls Ring alarm mode via Ring API."""
+    """Background thread: polls Ring alarm mode via ring_doorbell library with auto-refresh."""
     global _ring_status
-    import urllib.request
-    import urllib.error
+    import asyncio
 
     if _mock_mode:
         modes = ["disarmed", "home", "away"]
@@ -413,27 +412,42 @@ def ring_polling_loop():
         return
 
     if not RING_AUTH_FILE.exists():
-        print("[ring] No ring_auth.json found. Run ring_setup.py first.")
+        print("[ring] No ring_auth.json found. Run: python3 setup.py")
         return
 
     token_data = json.loads(RING_AUTH_FILE.read_text())
-    access_token = token_data.get("access_token")
-    location_id = token_data.get("location_id")
-
-    if not access_token:
+    if not token_data.get("access_token"):
         print("[ring] No access_token in ring_auth.json")
         return
 
-    # If we don't have location_id cached, fetch it once
-    if not location_id:
-        try:
-            req = urllib.request.Request(
-                "https://api.ring.com/clients_api/ring_devices",
-                headers={"Authorization": f"Bearer {access_token}",
-                         "User-Agent": "CarrierControl/1.0"},
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                devices = json.loads(resp.read())
+    location_id = token_data.get("location_id")
+
+    def token_updated(token):
+        # Preserve location_id across token refreshes
+        if location_id:
+            token["location_id"] = location_id
+        RING_AUTH_FILE.write_text(json.dumps(token))
+        print("[ring] Token refreshed and saved")
+
+    try:
+        from ring_doorbell import Auth
+        from ring_doorbell.exceptions import AuthenticationError
+    except ImportError:
+        print("[ring] ring_doorbell not installed. Run: pip install ring-doorbell")
+        return
+
+    loop = asyncio.new_event_loop()
+
+    try:
+        auth = Auth("CarrierControl/1.0", token_data, token_updated)
+
+        # Discover location_id if not cached
+        if not location_id:
+            try:
+                resp = loop.run_until_complete(
+                    auth.async_query("https://api.ring.com/clients_api/ring_devices")
+                )
+                devices = resp.json()
                 for category in devices.values():
                     if isinstance(category, list):
                         for d in category:
@@ -442,47 +456,45 @@ def ring_polling_loop():
                                 break
                     if location_id:
                         break
-            if location_id:
-                token_data["location_id"] = location_id
-                RING_AUTH_FILE.write_text(json.dumps(token_data))
-                print(f"[ring] Location ID: {location_id}")
-            else:
-                print("[ring] Could not find location_id from devices")
+                if location_id:
+                    token_data["location_id"] = location_id
+                    RING_AUTH_FILE.write_text(json.dumps(token_data))
+                    print(f"[ring] Location ID: {location_id}")
+                else:
+                    print("[ring] Could not find location_id from devices")
+                    return
+            except Exception as e:
+                print(f"[ring] Failed to fetch location: {e}")
                 return
-        except Exception as e:
-            print(f"[ring] Failed to fetch location: {e}")
-            return
 
-    print(f"[ring] Polling alarm mode for location {location_id}")
+        print(f"[ring] Polling alarm mode for location {location_id}")
 
-    while True:
-        try:
-            req = urllib.request.Request(
-                f"https://app.ring.com/api/v1/mode/location/{location_id}",
-                headers={"Authorization": f"Bearer {access_token}",
-                         "User-Agent": "CarrierControl/1.0"},
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read())
-                mode = data.get("mode")  # "disarmed", "home", or "away"
+        while True:
+            try:
+                resp = loop.run_until_complete(
+                    auth.async_query(
+                        f"https://app.ring.com/api/v1/mode/location/{location_id}"
+                    )
+                )
+                data = resp.json()
+                mode = data.get("mode")
                 with _ring_lock:
                     _ring_status = {"mode": mode, "connected": True}
 
-        except urllib.error.HTTPError as e:
-            if e.code == 401:
-                print("[ring] Token expired — re-run ring_setup.py")
+            except AuthenticationError:
+                print("[ring] Refresh token expired — re-run: python3 setup.py")
                 with _ring_lock:
                     _ring_status = {"mode": None, "connected": False}
                 return
-            print(f"[ring] HTTP error: {e.code}")
-            with _ring_lock:
-                _ring_status = {"mode": None, "connected": False}
-        except Exception as e:
-            print(f"[ring] Poll error: {e}")
-            with _ring_lock:
-                _ring_status = {"mode": None, "connected": False}
+            except Exception as e:
+                print(f"[ring] Poll error: {e}")
+                with _ring_lock:
+                    _ring_status = {"mode": None, "connected": False}
 
-        time.sleep(30)
+            time.sleep(30)
+    finally:
+        loop.run_until_complete(auth.async_close())
+        loop.close()
 
 
 # ── Routes ───────────────────────────────────────────────────────────

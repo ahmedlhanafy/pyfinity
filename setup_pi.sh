@@ -28,6 +28,7 @@ sudo cp -rf web/dist "$APP_DIR/web/dist"
 sudo cp -f server.py "$APP_DIR/"
 sudo cp -f carrier_ctl.py "$APP_DIR/" 2>/dev/null || true
 sudo cp -f ring_setup.py "$APP_DIR/" 2>/dev/null || true
+sudo cp -f setup.py "$APP_DIR/" 2>/dev/null || true
 # Preserve config files if they exist on the Pi
 for f in schedule.json settings.json energy_history.json ring_auth.json .env; do
     if [ -f "$APP_DIR/$f" ]; then
