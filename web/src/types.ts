@@ -8,6 +8,7 @@ export interface StatusResponse {
   indoor_temp: number | null;
   outdoor_temp: number | null;
   weather_source?: 'api' | 'bus';
+  city?: string | null;
   heat_setpoint: number | null;
   cool_setpoint: number | null;
   energy_yesterday: number | null;

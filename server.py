@@ -555,11 +555,13 @@ def api_status():
                 weather_temp = _weather_data.get("temp")
             outdoor = weather_temp if weather_temp is not None else status["outdoor_temp"]
             weather_source = "api" if weather_temp is not None else "bus"
+            settings = load_settings()
 
             return {
                 "indoor_temp": status["indoor_temp"],
                 "outdoor_temp": outdoor,
                 "weather_source": weather_source,
+                "city": settings.get("city", "") if weather_source == "api" else None,
                 "heat_setpoint": status["heat_setpoint"],
                 "cool_setpoint": status["cool_setpoint"],
                 "energy_yesterday": yesterday,

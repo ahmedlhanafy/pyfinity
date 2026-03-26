@@ -105,7 +105,7 @@ export default function HomeView({ status, unit, mode, controlMode, scheduleData
             Indoor {ft(status?.indoor_temp ?? null, unit)}
           </h2>
           <div className="weather-card">
-            <span className="label" style={{ marginBottom: 0 }}>Outside</span>
+            <span className="label" style={{ marginBottom: 0 }}>Outside{status?.weather_source === 'api' && status?.city ? ` · ${status.city}` : ''}</span>
             <div className="weather-value">{ft(status?.outdoor_temp ?? null, unit)}</div>
           </div>
         </div>
