@@ -357,43 +357,48 @@ def scheduler_loop():
 
 # ── Ring polling thread ──────────────────────────────────────────────
 
-def weather_polling_loop():
-    """Background thread: fetches outdoor temp from OpenWeatherMap every 10 min."""
+def fetch_weather():
+    """Fetch outdoor temp from OpenWeatherMap. Called by polling loop and on-demand."""
     global _weather_data
     import urllib.request
     import urllib.error
 
+    settings = load_settings()
+    city = settings.get("city", "").strip()
+    api_key = settings.get("openweather_api_key", "").strip()
+
+    if not city or not api_key:
+        with _weather_lock:
+            _weather_data = {"temp": None, "updated": None}
+        return
+
+    if _mock_mode:
+        with _weather_lock:
+            _weather_data = {"temp": 72.5, "updated": datetime.now().isoformat()}
+        return
+
+    url = (
+        f"https://api.openweathermap.org/data/2.5/weather"
+        f"?q={urllib.request.quote(city)}&appid={api_key}&units=imperial"
+    )
+    req = urllib.request.Request(url, headers={"User-Agent": "Pyfinity/1.0"})
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read())
+        temp = data.get("main", {}).get("temp")
+        if temp is not None:
+            with _weather_lock:
+                _weather_data = {"temp": round(temp, 1), "updated": datetime.now().isoformat()}
+            print(f"[weather] Updated: {temp}°F")
+
+
+def weather_polling_loop():
+    """Background thread: fetches outdoor temp from OpenWeatherMap every hour."""
     while True:
         try:
-            settings = load_settings()
-            city = settings.get("city", "").strip()
-            api_key = settings.get("openweather_api_key", "").strip()
-
-            if city and api_key:
-                if _mock_mode:
-                    with _weather_lock:
-                        _weather_data = {"temp": 72.5, "updated": datetime.now().isoformat()}
-                else:
-                    url = (
-                        f"https://api.openweathermap.org/data/2.5/weather"
-                        f"?q={urllib.request.quote(city)}&appid={api_key}&units=imperial"
-                    )
-                    req = urllib.request.Request(url, headers={"User-Agent": "Pyfinity/1.0"})
-                    with urllib.request.urlopen(req, timeout=10) as resp:
-                        data = json.loads(resp.read())
-                        temp = data.get("main", {}).get("temp")
-                        if temp is not None:
-                            with _weather_lock:
-                                _weather_data = {"temp": round(temp, 1), "updated": datetime.now().isoformat()}
-                            print(f"[weather] Updated: {temp}°F")
-            else:
-                with _weather_lock:
-                    _weather_data = {"temp": None, "updated": None}
-
+            fetch_weather()
         except Exception as e:
             print(f"[weather] Error: {e}")
-
-        time.sleep(600)  # 10 minutes
+        time.sleep(3600)  # 1 hour
 
 
 def ring_polling_loop():
@@ -881,6 +886,16 @@ def api_settings_save():
     data = request.get_json()
     updated = save_settings(data)
     return json_response({"ok": True, **updated})
+
+
+@app.route("/api/weather/refresh", methods=["POST"])
+def api_weather_refresh():
+    try:
+        fetch_weather()
+        with _weather_lock:
+            return json_response({"ok": True, **_weather_data})
+    except Exception as e:
+        return json_response({"error": str(e)}, 500)
 
 
 # ── Main ─────────────────────────────────────────────────────────────
