@@ -400,6 +400,19 @@ def ring_polling_loop():
     """Background thread: polls Ring alarm mode via ring_doorbell library with auto-refresh."""
     global _ring_status
     import asyncio
+    import traceback
+
+    try:
+        _ring_polling_inner()
+    except Exception:
+        print(f"[ring] Thread crashed:\n{traceback.format_exc()}", flush=True)
+        with _ring_lock:
+            _ring_status = {"mode": None, "connected": False}
+
+
+def _ring_polling_inner():
+    global _ring_status
+    import asyncio
 
     if _mock_mode:
         modes = ["disarmed", "home", "away"]

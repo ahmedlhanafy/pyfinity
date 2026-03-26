@@ -49,6 +49,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/pyfinity
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 /opt/pyfinity/server.py
 Restart=always
 RestartSec=5
