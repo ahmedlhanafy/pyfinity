@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Unit, Theme, RingStatus, ScheduleData, RingMapping } from '../types';
-import { getSettings, saveSettings, getRingStatus, saveSchedule as apiSaveSchedule } from '../api';
+import { getSettings, saveSettings, getRingStatus, saveSchedule as apiSaveSchedule, refreshWeather } from '../api';
 import { PERIOD_COLORS } from '../utils';
 
 const SLOT_OPTIONS = [
@@ -185,9 +185,18 @@ export default function SettingsView({
             />
           </div>
           {city && apiKey && (
-            <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-              Outdoor temp from OpenWeatherMap (updates every 10 min)
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                Outdoor temp from OpenWeatherMap (updates hourly)
+              </span>
+              <button
+                className="refresh-btn"
+                style={{ fontSize: 12, padding: '2px 10px', cursor: 'pointer', border: '1px solid var(--text-secondary)', borderRadius: 6, background: 'transparent', color: 'var(--text-secondary)' }}
+                onClick={() => refreshWeather().catch(() => {})}
+              >
+                Refresh
+              </button>
+            </div>
           )}
         </div>
       </div>

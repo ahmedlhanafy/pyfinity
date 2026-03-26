@@ -100,6 +100,12 @@ export async function getSettings(): Promise<Settings> {
   return res.json();
 }
 
+export async function refreshWeather(): Promise<{ ok: boolean; temp?: number }> {
+  const res = await fetch('/api/weather/refresh', { method: 'POST' });
+  if (!res.ok) throw new Error(`Weather refresh failed: ${res.status}`);
+  return res.json();
+}
+
 export async function saveSettings(
   settings: Partial<Settings>,
 ): Promise<{ ok: boolean }> {
