@@ -29,6 +29,7 @@ _lock = threading.Lock()
 _mock_mode = False
 _schedule = None
 _last_applied_period = None
+_last_seen_ring_mode = None
 _ring_status = {"mode": None, "connected": False}
 _ring_lock = threading.Lock()
 
@@ -271,7 +272,7 @@ def json_response(data, status=200):
 
 def scheduler_loop():
     """Background thread: applies schedule/ring temps when period changes."""
-    global _last_applied_period
+    global _last_applied_period, _last_seen_ring_mode
     while True:
         try:
             sched = get_schedule()
@@ -295,7 +296,8 @@ def scheduler_loop():
                         mapped_period = next((s for s in slots if s["period"] == mapped_slot), None)
                         if mapped_period:
                             key = f"ring:{ring_mode}:{mapped_slot}"
-                            if key != _last_applied_period:
+                            ring_mode_changed = ring_mode != _last_seen_ring_mode
+                            if key != _last_applied_period or ring_mode_changed:
                                 heat, cool = mapped_period["heat"], mapped_period["cool"]
                                 print(f"[scheduler] Ring→{mapped_slot} "
                                       f"(heat={heat}, cool={cool})")
@@ -310,7 +312,11 @@ def scheduler_loop():
                                         print(f"[scheduler] Ring cool set failed: {e}")
                                 threading.Thread(target=apply_ring, daemon=True).start()
                                 _last_applied_period = key
+                            _last_seen_ring_mode = ring_mode
                             ring_override = True
+                    else:
+                        # Ring has no valid mapping — reset so next valid mode always fires
+                        _last_seen_ring_mode = ring_mode
 
                 if not ring_override:
                     period = get_active_period()
@@ -336,7 +342,8 @@ def scheduler_loop():
                     ring_mode = _ring_status.get("mode")
                 if ring_mode:
                     ring_cfg = sched.get("ring", {}).get(ring_mode)
-                    if ring_cfg and ring_mode != _last_applied_period:
+                    ring_mode_changed = ring_mode != _last_seen_ring_mode
+                    if ring_cfg and (ring_mode != _last_applied_period or ring_mode_changed):
                         heat, cool = ring_cfg["heat"], ring_cfg["cool"]
                         print(f"[scheduler] Ring mode: {ring_mode} "
                               f"(heat={heat}, cool={cool})")
@@ -349,6 +356,7 @@ def scheduler_loop():
                         except Exception as e:
                             print(f"[scheduler] Ring cool set failed: {e}")
                         _last_applied_period = ring_mode
+                    _last_seen_ring_mode = ring_mode
 
         except Exception as e:
             print(f"[scheduler] Error: {e}")
@@ -587,6 +595,7 @@ def api_status():
 
 @app.route("/api/set", methods=["POST"])
 def api_set():
+    global _last_applied_period
     data = request.get_json()
     mode = data.get("mode", "heat")
     temp = int(data.get("temp", 68))
@@ -606,6 +615,7 @@ def api_set():
         except Exception as e:
             print(f"Set failed: {e}")
 
+    _last_applied_period = None  # Force scheduler to re-apply Ring/schedule
     threading.Thread(target=do_set, daemon=True).start()
     return json_response({"ok": True, "target": temp, "mode": mode})
 
