@@ -751,6 +751,10 @@ def api_energy():
         result = [{"date": k, **v} for k, v in sorted(data.items())]
         return json_response({"range": "week", "data": result})
 
+    elif range_type == "all":
+        result = [{"date": k, **v} for k, v in sorted(history.items())]
+        return json_response({"range": "all", "data": result})
+
     elif range_type == "year":
         # Use thermostat yearly totals (much more accurate than sparse history)
         try:
